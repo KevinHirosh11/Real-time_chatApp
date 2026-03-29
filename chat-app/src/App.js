@@ -1,10 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import RegisterPage from './components/RegisterPage';
 
 function App() {
   const apiBase = useMemo(() => {
     return process.env.REACT_APP_API_BASE || 'http://localhost/Real-time_chatApp/API';
   }, []);
+
+  const socketUrl = useMemo(() => {
+    return process.env.REACT_APP_WS_URL || 'ws://localhost:8080';
+  }, []);
+
+  const [authMode, setAuthMode] = useState('login');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [registerForm, setRegisterForm] = useState({ username: '', email: '', password: '' });
 
   const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState(null);
@@ -12,12 +24,19 @@ function App() {
   const [draft, setDraft] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
-  const [error, setError] = useState('');
+  const [chatError, setChatError] = useState('');
+  const [socketStatus, setSocketStatus] = useState('offline');
 
-  const currentUser = users[0] || null;
+  const socketRef = useRef(null);
+  const activeUserIdRef = useRef(null);
+
   const activeUser = users.find((user) => user.id === activeUserId) || null;
 
   const fetchUsers = useCallback(async () => {
+    if (!currentUser) {
+      return;
+    }
+
     try {
       setLoadingUsers(true);
       const response = await fetch(`${apiBase}/users.php`);
@@ -27,17 +46,22 @@ function App() {
         throw new Error(result.message || 'Failed to load users');
       }
 
-      const loadedUsers = result.data || [];
+      const loadedUsers = (result.data || []).filter((user) => user.id !== currentUser.id);
       setUsers(loadedUsers);
+
       if (loadedUsers.length > 1) {
-        setActiveUserId((previousId) => previousId || loadedUsers[1].id);
+        setActiveUserId((previousId) => previousId || loadedUsers[0].id);
+      } else if (loadedUsers.length === 1) {
+        setActiveUserId(loadedUsers[0].id);
+      } else {
+        setActiveUserId(null);
       }
     } catch (err) {
-      setError(err.message || 'Unable to connect to API');
+      setChatError(err.message || 'Unable to connect to API');
     } finally {
       setLoadingUsers(false);
     }
-  }, [apiBase]);
+  }, [apiBase, currentUser]);
 
   const fetchMessages = useCallback(async (senderId, receiverId) => {
     if (!senderId || !receiverId) {
@@ -57,15 +81,23 @@ function App() {
 
       setMessages(result.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to fetch conversation');
+      setChatError(err.message || 'Failed to fetch conversation');
     } finally {
       setLoadingMessages(false);
     }
   }, [apiBase]);
 
   useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
     fetchUsers();
-  }, [fetchUsers]);
+  }, [currentUser, fetchUsers]);
+
+  useEffect(() => {
+    activeUserIdRef.current = activeUserId;
+  }, [activeUserId]);
 
   useEffect(() => {
     if (!currentUser || !activeUser) {
@@ -74,17 +106,128 @@ function App() {
     }
 
     fetchMessages(currentUser.id, activeUser.id);
-
-    const intervalId = setInterval(() => {
-      fetchMessages(currentUser.id, activeUser.id);
-    }, 5000);
-
-    return () => clearInterval(intervalId);
   }, [currentUser, activeUser, fetchMessages]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      setSocketStatus('offline');
+      return;
+    }
+
+    let isUnmounted = false;
+    const socket = new WebSocket(socketUrl);
+    socketRef.current = socket;
+    setSocketStatus('connecting');
+
+    socket.onopen = () => {
+      if (isUnmounted) {
+        return;
+      }
+
+      setSocketStatus('online');
+      socket.send(
+        JSON.stringify({
+          type: 'auth',
+          userId: currentUser.id,
+        })
+      );
+    };
+
+    socket.onmessage = (event) => {
+      if (isUnmounted) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.data);
+
+        if (payload.type === 'error') {
+          setChatError(payload.message || 'Socket error');
+          return;
+        }
+
+        if (payload.type !== 'new_message' && payload.type !== 'message_sent') {
+          return;
+        }
+
+        const packet = payload.data || {};
+        const incoming = {
+          id: Number(packet.id),
+          sender_id: Number(packet.senderId),
+          receiver_id: Number(packet.receiverId),
+          message: String(packet.message || ''),
+          created_at: packet.createdAt || new Date().toISOString(),
+        };
+
+        const peerId = activeUserIdRef.current;
+        const isCurrentConversation =
+          peerId &&
+          ((incoming.sender_id === currentUser.id && incoming.receiver_id === peerId) ||
+            (incoming.sender_id === peerId && incoming.receiver_id === currentUser.id));
+
+        if (!isCurrentConversation) {
+          return;
+        }
+
+        setMessages((previous) => {
+          const alreadyExists = previous.some((message) => message.id === incoming.id);
+          if (alreadyExists) {
+            return previous;
+          }
+
+          return [...previous, incoming];
+        });
+      } catch {
+        setChatError('Received invalid socket payload');
+      }
+    };
+
+    socket.onerror = () => {
+      if (isUnmounted) {
+        return;
+      }
+
+      setSocketStatus('error');
+    };
+
+    socket.onclose = () => {
+      if (isUnmounted) {
+        return;
+      }
+
+      setSocketStatus('offline');
+    };
+
+    return () => {
+      isUnmounted = true;
+      socket.close();
+      socketRef.current = null;
+    };
+  }, [currentUser, socketUrl]);
 
   const sendMessage = async (event) => {
     event.preventDefault();
     if (!currentUser || !activeUser || !draft.trim()) {
+      return;
+    }
+
+    const text = draft.trim();
+    const socket = socketRef.current;
+    const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
+
+    if (canSendWithSocket) {
+      socket.send(
+        JSON.stringify({
+          type: 'private_message',
+          receiverId: activeUser.id,
+          message: text,
+        })
+      );
+      setDraft('');
       return;
     }
 
@@ -97,7 +240,7 @@ function App() {
         body: JSON.stringify({
           sender_id: currentUser.id,
           receiver_id: activeUser.id,
-          message: draft.trim(),
+          message: text,
         }),
       });
 
@@ -109,14 +252,173 @@ function App() {
       setDraft('');
       fetchMessages(currentUser.id, activeUser.id);
     } catch (err) {
-      setError(err.message || 'Failed to send message');
+      setChatError(err.message || 'Failed to send message');
     }
+  };
+
+  const handleLoginSubmit = async (event) => {
+    event.preventDefault();
+    setAuthError('');
+
+    if (!loginForm.email.trim() || !loginForm.password.trim()) {
+      setAuthError('Please enter email and password.');
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      const response = await fetch(`${apiBase}/login.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: loginForm.email.trim(),
+          password: loginForm.password,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Login failed');
+      }
+
+      setCurrentUser(result.data || null);
+      setLoginForm({ email: '', password: '' });
+    } catch (err) {
+      setAuthError(err.message || 'Login failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (event) => {
+    event.preventDefault();
+    setAuthError('');
+
+    if (!registerForm.username.trim() || !registerForm.email.trim() || !registerForm.password.trim()) {
+      setAuthError('Please fill in username, email, and password.');
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      const response = await fetch(`${apiBase}/register.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: registerForm.username.trim(),
+          email: registerForm.email.trim(),
+          password: registerForm.password,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Registration failed');
+      }
+
+      setCurrentUser(result.data || null);
+      setRegisterForm({ username: '', email: '', password: '' });
+    } catch (err) {
+      setAuthError(err.message || 'Registration failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const logout = () => {
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+
+    setSocketStatus('offline');
+    setCurrentUser(null);
+    setUsers([]);
+    setMessages([]);
+    setDraft('');
+    setActiveUserId(null);
+    setChatError('');
   };
 
   const formatTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  if (!currentUser) {
+    return (
+      <div className="chat-shell auth-shell">
+        <div className="glow-layer glow-one" />
+        <div className="glow-layer glow-two" />
+
+        <main className="auth-layout">
+          <section className="auth-panel">
+            <p className="auth-kicker">Secure Access</p>
+            <h1>Real-time ChatApp</h1>
+            <p className="auth-subtext">
+              Sign in to continue your conversations, or create a new account to start chatting.
+            </p>
+
+            <div className="auth-switch">
+              <button
+                type="button"
+                className={authMode === 'login' ? 'active' : ''}
+                onClick={() => setAuthMode('login')}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                className={authMode === 'register' ? 'active' : ''}
+                onClick={() => setAuthMode('register')}
+              >
+                Register
+              </button>
+            </div>
+
+            {authError ? <p className="error-banner">{authError}</p> : null}
+
+            {authMode === 'login' ? (
+              <form className="auth-form" onSubmit={handleLoginSubmit}>
+                <label htmlFor="login-email">Email</label>
+                <input
+                  id="login-email"
+                  type="email"
+                  value={loginForm.email}
+                  onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
+                  placeholder="you@email.com"
+                />
+
+                <label htmlFor="login-password">Password</label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                  placeholder="Enter your password"
+                />
+
+                <button type="submit" disabled={authLoading}>
+                  {authLoading ? 'Signing in...' : 'Login'}
+                </button>
+              </form>
+            ) : (
+              <RegisterPage
+                registerForm={registerForm}
+                setRegisterForm={setRegisterForm}
+                authLoading={authLoading}
+                onSubmit={handleRegisterSubmit}
+              />
+            )}
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-shell">
@@ -178,11 +480,18 @@ function App() {
               <p className="label">Conversation</p>
               <h2>{activeUser ? activeUser.username : 'Pick a contact'}</h2>
             </div>
-            <div className="topbar-chip">Live Sync</div>
+            <div className="topbar-actions">
+              <div className={`topbar-chip socket-${socketStatus}`}>
+                Socket {socketStatus}
+              </div>
+              <button type="button" className="logout-btn" onClick={logout}>
+                Logout
+              </button>
+            </div>
           </header>
 
           <div className="messages-area">
-            {error ? <p className="error-banner">{error}</p> : null}
+            {chatError ? <p className="error-banner">{chatError}</p> : null}
 
             {!activeUser ? <p className="helper-text">Select a contact to begin messaging.</p> : null}
 

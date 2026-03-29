@@ -42,6 +42,124 @@
   z-index: 1;
 }
 
+.auth-shell {
+  display: grid;
+  place-items: center;
+}
+
+.auth-layout {
+  width: min(520px, 100%);
+  position: relative;
+  z-index: 1;
+}
+
+.auth-panel {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border-radius: 24px;
+  box-shadow: 0 20px 55px rgba(13, 46, 68, 0.16);
+  padding: clamp(1.2rem, 3vw, 2rem);
+}
+
+.auth-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #407089;
+  font-size: 0.78rem;
+}
+
+.auth-panel h1 {
+  margin: 0.55rem 0 0;
+  font-family: 'Space Grotesk', sans-serif;
+  color: #13384f;
+  font-size: clamp(1.65rem, 4vw, 2.1rem);
+}
+
+.auth-subtext {
+  margin: 0.6rem 0 0;
+  color: #557e94;
+  line-height: 1.5;
+}
+
+.auth-switch {
+  margin-top: 1.2rem;
+  background: #eaf3f9;
+  border-radius: 12px;
+  padding: 0.25rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.auth-switch button {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.58rem 0.68rem;
+  background: transparent;
+  color: #3d6174;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-switch button.active {
+  background: #ffffff;
+  color: #13384f;
+  box-shadow: 0 5px 12px rgba(16, 64, 88, 0.12);
+}
+
+.auth-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.auth-form label {
+  color: #2a5872;
+  font-weight: 600;
+  margin-top: 0.42rem;
+  font-size: 0.9rem;
+}
+
+.auth-form input {
+  border: 1px solid #cbe0ee;
+  border-radius: 12px;
+  padding: 0.74rem 0.85rem;
+  font-size: 0.95rem;
+  font-family: 'Manrope', sans-serif;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.auth-form input:focus {
+  border-color: #0f9aa1;
+  box-shadow: 0 0 0 3px rgba(15, 154, 161, 0.14);
+}
+
+.auth-form button {
+  margin-top: 0.75rem;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #0f8c8a, #1588a8);
+  color: #effcff;
+  padding: 0.72rem;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.auth-form button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.auth-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .chat-sidebar,
 .chat-main {
   border-radius: 24px;
@@ -231,6 +349,39 @@
   padding: 0.38rem 0.75rem;
   font-weight: 700;
   font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.topbar-chip.socket-online {
+  background: #ddf9e8;
+  color: #0c7b57;
+}
+
+.topbar-chip.socket-connecting {
+  background: #e6f2ff;
+  color: #1a5a99;
+}
+
+.topbar-chip.socket-offline,
+.topbar-chip.socket-error {
+  background: #ffe7e7;
+  color: #962b2b;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.logout-btn {
+  border: 0;
+  border-radius: 999px;
+  background: #ffe5ca;
+  color: #7a430d;
+  padding: 0.38rem 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .messages-area {
