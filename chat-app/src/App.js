@@ -428,9 +428,9 @@ function App() {
       <main className="chat-layout">
         <aside className="chat-sidebar">
           <div className="brand-row">
-            <div className="brand-badge">RT</div>
+            <div className="brand-badge">K</div>
             <div>
-              <p className="brand-kicker">Realtime Workspace</p>
+              <p className="brand-kicker">Realtime Chat</p>
               <h1>Chat Control</h1>
             </div>
           </div>
