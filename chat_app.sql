@@ -101,6 +101,7 @@ CREATE TABLE `users` (
   `username` varchar(100) NOT NULL,
   `email` varchar(150) NOT NULL,
   `password` varchar(255) NOT NULL,
+  `bio` varchar(500) DEFAULT NULL,
   `profile_image` varchar(255) DEFAULT NULL,
   `status` enum('online','offline') DEFAULT 'offline',
   `last_seen` timestamp NULL DEFAULT NULL,
@@ -111,9 +112,9 @@ CREATE TABLE `users` (
 -- Dumping data for table `users`
 --
 
-INSERT INTO `users` (`id`, `username`, `email`, `password`, `profile_image`, `status`, `last_seen`, `created_at`) VALUES
-(1, 'Kevin', 'kevin@gmail.com', 'hashed_password', NULL, 'offline', NULL, '2026-03-29 13:33:02'),
-(2, 'John', 'john@gmail.com', 'hashed_password', NULL, 'offline', NULL, '2026-03-29 13:33:02');
+INSERT INTO `users` (`id`, `username`, `email`, `password`, `bio`, `profile_image`, `status`, `last_seen`, `created_at`) VALUES
+(1, 'Kevin', 'kevin@gmail.com', 'hashed_password', 'Love building realtime apps.', NULL, 'offline', NULL, '2026-03-29 13:33:02'),
+(2, 'John', 'john@gmail.com', 'hashed_password', 'Available for testing chat features.', NULL, 'offline', NULL, '2026-03-29 13:33:02');
 
 --
 -- Indexes for dumped tables

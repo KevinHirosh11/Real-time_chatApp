@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import RegisterPage from './components/RegisterPage';
+import Profile from './components/profile';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
 
@@ -45,6 +46,21 @@ function App() {
 
   const activeUser = users.find((user) => user.id === activeUserId) || null;
 
+  const renderAvatar = (user, className = 'avatar') => {
+    const username = user && user.username ? String(user.username) : '?';
+    const imageUrl = user && user.profile_image ? String(user.profile_image) : '';
+
+    if (imageUrl) {
+      return (
+        <div className={`${className} has-image`}>
+          <img src={imageUrl} alt={`${username} avatar`} loading="lazy" />
+        </div>
+      );
+    }
+
+    return <div className={className}>{username.charAt(0).toUpperCase()}</div>;
+  };
+
   const fetchUsers = useCallback(async () => {
     if (!currentUser) {
       return;
@@ -62,10 +78,8 @@ function App() {
       const loadedUsers = (result.data || []).filter((user) => user.id !== currentUser.id);
       setUsers(loadedUsers);
 
-      if (loadedUsers.length > 1) {
+      if (loadedUsers.length > 0) {
         setActiveUserId((previousId) => previousId || loadedUsers[0].id);
-      } else if (loadedUsers.length === 1) {
-        setActiveUserId(loadedUsers[0].id);
       } else {
         setActiveUserId(null);
       }
@@ -413,6 +427,27 @@ function App() {
     setTheme((previousTheme) => (previousTheme === 'light' ? 'dark' : 'light'));
   };
 
+  const handleProfileSaved = (updatedUser) => {
+    if (!updatedUser || !updatedUser.id) {
+      return;
+    }
+
+    setCurrentUser((previousUser) => {
+      if (!previousUser || previousUser.id !== updatedUser.id) {
+        return previousUser;
+      }
+
+      return {
+        ...previousUser,
+        ...updatedUser,
+      };
+    });
+
+    setUsers((previousUsers) =>
+      previousUsers.map((user) => (user.id === updatedUser.id ? { ...user, ...updatedUser } : user))
+    );
+  };
+
   if (!currentUser) {
     return (
       <div className={`chat-shell auth-shell theme-${theme}`}>
@@ -505,19 +540,30 @@ function App() {
           </div>
 
           <div className="profile-card">
-            <p className="label">Signed in as</p>
-            <h2>{currentUser ? currentUser.username : 'Loading...'}</h2>
-            <p>{currentUser ? currentUser.email : 'Fetching profile'}</p>
+            <div className="profile-card-head">
+              {renderAvatar(currentUser, 'avatar avatar-large')}
+              <div>
+                <p className="label">Signed in as</p>
+                <h2>{currentUser ? currentUser.username : 'Loading...'}</h2>
+                <p>{currentUser ? currentUser.email : 'Fetching profile'}</p>
+              </div>
+            </div>
+            <p className="profile-bio">
+              {currentUser && currentUser.bio
+                ? currentUser.bio
+                : 'No bio yet. Add one from Edit Profile.'}
+            </p>
+            <Profile currentUser={currentUser} apiBase={apiBase} onSaved={handleProfileSaved} />
           </div>
 
           <div className="contacts-wrap">
             <div className="contacts-header">
               <h3>Contacts</h3>
-              <span>{Math.max(users.length - 1, 0)}</span>
+              <span>{users.length}</span>
             </div>
 
             {loadingUsers ? <p className="helper-text">Loading users...</p> : null}
-            {!loadingUsers && users.length <= 1 ? (
+            {!loadingUsers && users.length === 0 ? (
               <p className="helper-text">Add more users in your database to start chatting.</p>
             ) : null}
 
@@ -532,7 +578,7 @@ function App() {
                     style={{ animationDelay: `${index * 70}ms` }}
                     onClick={() => setActiveUserId(user.id)}
                   >
-                    <div className="avatar">{user.username.charAt(0).toUpperCase()}</div>
+                    {renderAvatar(user)}
                     <div>
                       <p>{user.username}</p>
                       <small>{user.status === 'online' ? 'Online' : 'Offline'}</small>

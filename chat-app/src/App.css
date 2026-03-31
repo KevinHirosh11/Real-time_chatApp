@@ -222,6 +222,12 @@
   color: #e7fbff;
 }
 
+.profile-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
 .profile-card .label,
 .chat-topbar .label {
   margin: 0;
@@ -240,6 +246,100 @@
 .profile-card p {
   margin: 0;
   font-size: 0.88rem;
+}
+
+.profile-bio {
+  margin-top: 0.75rem !important;
+  line-height: 1.35;
+  color: #c3eef8;
+}
+
+.profile-editor-wrap {
+  margin-top: 0.8rem;
+}
+
+.profile-edit-toggle {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #effcff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  padding: 0.58rem 0.64rem;
+  cursor: pointer;
+}
+
+.profile-editor {
+  margin-top: 0.62rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.profile-editor label {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.profile-editor input,
+.profile-editor textarea {
+  border: 1px solid rgba(207, 241, 248, 0.45);
+  border-radius: 10px;
+  padding: 0.58rem 0.64rem;
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.88rem;
+  color: #0d3345;
+}
+
+.profile-editor textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.profile-editor button {
+  margin-top: 0.28rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.58rem 0.64rem;
+  background: linear-gradient(145deg, #f6c35f, #ffa96d);
+  color: #35210f;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profile-editor button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.profile-preview {
+  margin-top: 0.2rem;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+}
+
+.profile-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-success {
+  margin: 0;
+  background: #dff9ea;
+  color: #1b734d;
+  padding: 0.5rem 0.62rem;
+  border-radius: 9px;
+  border: 1px solid #b8eed1;
+  font-size: 0.82rem;
+}
+
+.profile-notice {
+  margin-top: 0.52rem;
 }
 
 .contacts-wrap {
@@ -327,6 +427,24 @@
   place-items: center;
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
+}
+
+.avatar.has-image {
+  background: #d2edf7;
+  overflow: hidden;
+}
+
+.avatar.has-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-large {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex-shrink: 0;
 }
 
 .chat-main {
@@ -550,6 +668,10 @@
   color: #96afc0;
 }
 
+.chat-shell.theme-dark .profile-bio {
+  color: #b2d3e7;
+}
+
 .chat-shell.theme-dark .auth-panel h1,
 .chat-shell.theme-dark .brand-row h1,
 .chat-shell.theme-dark .contacts-header h3,
@@ -608,6 +730,23 @@
 
 .chat-shell.theme-dark .avatar {
   color: #fdf7ef;
+}
+
+.chat-shell.theme-dark .profile-edit-toggle {
+  background: rgba(95, 151, 187, 0.18);
+}
+
+.chat-shell.theme-dark .profile-editor input,
+.chat-shell.theme-dark .profile-editor textarea {
+  background: #10212f;
+  border-color: #365266;
+  color: #def1ff;
+}
+
+.chat-shell.theme-dark .profile-success {
+  background: #1e3b2f;
+  border-color: #2f6750;
+  color: #b5f2cb;
 }
 
 .chat-shell.theme-dark .chat-topbar,

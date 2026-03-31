@@ -36,6 +36,7 @@ if (strlen($password) < 6) {
 
 try {
     $pdo = getDbConnection();
+    ensureUserProfileColumns($pdo);
 
     $checkStmt = $pdo->prepare('SELECT id FROM users WHERE email = :email LIMIT 1');
     $checkStmt->execute([':email' => $email]);
@@ -68,6 +69,8 @@ try {
             'username' => $username,
             'email' => $email,
             'status' => 'online',
+            'bio' => '',
+            'profile_image' => null,
         ],
     ]);
 } catch (Throwable $e) {

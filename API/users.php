@@ -10,13 +10,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 try {
     $pdo = getDbConnection();
-    $stmt = $pdo->query('SELECT id, username, email, status, created_at FROM users ORDER BY id ASC');
+    ensureUserProfileColumns($pdo);
+
+    $stmt = $pdo->query('SELECT id, username, email, status, profile_image, bio, created_at FROM users ORDER BY id ASC');
     $users = $stmt->fetchAll();
+
+    $normalizedUsers = array_map(static function (array $user): array {
+        $user['bio'] = isset($user['bio']) ? (string) $user['bio'] : '';
+        $user['profile_image'] = resolveProfileImageUrl($user['profile_image'] ?? null);
+        return $user;
+    }, $users);
 
     jsonResponse(200, [
         'success' => true,
-        'count' => count($users),
-        'data' => $users,
+        'count' => count($normalizedUsers),
+        'data' => $normalizedUsers,
     ]);
 } catch (Throwable $e) {
     jsonResponse(500, [

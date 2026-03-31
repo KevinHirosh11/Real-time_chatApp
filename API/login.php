@@ -21,8 +21,9 @@ if ($email === '' || $password === '') {
 
 try {
     $pdo = getDbConnection();
+    ensureUserProfileColumns($pdo);
 
-    $stmt = $pdo->prepare('SELECT id, username, email, password, status FROM users WHERE email = :email LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, username, email, password, status, profile_image, bio FROM users WHERE email = :email LIMIT 1');
     $stmt->execute([':email' => $email]);
     $user = $stmt->fetch();
 
@@ -57,6 +58,8 @@ try {
             'username' => (string) $user['username'],
             'email' => (string) $user['email'],
             'status' => 'online',
+            'bio' => isset($user['bio']) ? (string) $user['bio'] : '',
+            'profile_image' => resolveProfileImageUrl($user['profile_image'] ?? null),
         ],
     ]);
 } catch (Throwable $e) {
