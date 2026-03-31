@@ -2,6 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import RegisterPage from './components/RegisterPage';
 
+const THEME_STORAGE_KEY = 'chat_app_theme';
+
+const getInitialTheme = () => {
+  if (typeof window === 'undefined') {
+    return 'light';
+  }
+
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return savedTheme === 'dark' ? 'dark' : 'light';
+};
+
 function App() {
   const apiBase = useMemo(() => {
     return process.env.REACT_APP_API_BASE || 'http://localhost/Real-time_chatApp/API';
@@ -26,8 +37,10 @@ function App() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [chatError, setChatError] = useState('');
   const [socketStatus, setSocketStatus] = useState('offline');
+  const [theme, setTheme] = useState(getInitialTheme);
 
   const socketRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
   const activeUserIdRef = useRef(null);
 
   const activeUser = users.find((user) => user.id === activeUserId) || null;
@@ -109,103 +122,150 @@ function App() {
   }, [currentUser, activeUser, fetchMessages]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    }
+
+    document.body.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
     if (!currentUser) {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
       }
+
       setSocketStatus('offline');
       return;
     }
 
     let isUnmounted = false;
-    const socket = new WebSocket(socketUrl);
-    socketRef.current = socket;
-    setSocketStatus('connecting');
+    let shouldReconnect = true;
 
-    socket.onopen = () => {
-      if (isUnmounted) {
-        return;
+    const clearReconnectTimer = () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
-
-      setSocketStatus('online');
-      socket.send(
-        JSON.stringify({
-          type: 'auth',
-          userId: currentUser.id,
-        })
-      );
     };
 
-    socket.onmessage = (event) => {
+    const connectSocket = () => {
       if (isUnmounted) {
         return;
       }
 
-      try {
-        const payload = JSON.parse(event.data);
+      clearReconnectTimer();
+      setSocketStatus('connecting');
 
-        if (payload.type === 'error') {
-          setChatError(payload.message || 'Socket error');
+      const socket = new WebSocket(socketUrl);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        if (isUnmounted) {
           return;
         }
 
-        if (payload.type !== 'new_message' && payload.type !== 'message_sent') {
+        setSocketStatus('online');
+        socket.send(
+          JSON.stringify({
+            type: 'auth',
+            userId: currentUser.id,
+          })
+        );
+      };
+
+      socket.onmessage = (event) => {
+        if (isUnmounted) {
           return;
         }
 
-        const packet = payload.data || {};
-        const incoming = {
-          id: Number(packet.id),
-          sender_id: Number(packet.senderId),
-          receiver_id: Number(packet.receiverId),
-          message: String(packet.message || ''),
-          created_at: packet.createdAt || new Date().toISOString(),
-        };
+        try {
+          const payload = JSON.parse(event.data);
 
-        const peerId = activeUserIdRef.current;
-        const isCurrentConversation =
-          peerId &&
-          ((incoming.sender_id === currentUser.id && incoming.receiver_id === peerId) ||
-            (incoming.sender_id === peerId && incoming.receiver_id === currentUser.id));
-
-        if (!isCurrentConversation) {
-          return;
-        }
-
-        setMessages((previous) => {
-          const alreadyExists = previous.some((message) => message.id === incoming.id);
-          if (alreadyExists) {
-            return previous;
+          if (payload.type === 'error') {
+            setChatError(payload.message || 'Socket error');
+            return;
           }
 
-          return [...previous, incoming];
-        });
-      } catch {
-        setChatError('Received invalid socket payload');
-      }
+          if (payload.type !== 'new_message' && payload.type !== 'message_sent') {
+            return;
+          }
+
+          const packet = payload.data || {};
+          const incoming = {
+            id: Number(packet.id),
+            sender_id: Number(packet.senderId),
+            receiver_id: Number(packet.receiverId),
+            message: String(packet.message || ''),
+            created_at: packet.createdAt || new Date().toISOString(),
+          };
+
+          const peerId = activeUserIdRef.current;
+          const isCurrentConversation =
+            peerId &&
+            ((incoming.sender_id === currentUser.id && incoming.receiver_id === peerId) ||
+              (incoming.sender_id === peerId && incoming.receiver_id === currentUser.id));
+
+          if (!isCurrentConversation) {
+            return;
+          }
+
+          setMessages((previous) => {
+            const alreadyExists = previous.some((message) => message.id === incoming.id);
+            if (alreadyExists) {
+              return previous;
+            }
+
+            return [...previous, incoming];
+          });
+        } catch {
+          setChatError('Received invalid socket payload');
+        }
+      };
+
+      socket.onerror = () => {
+        if (isUnmounted) {
+          return;
+        }
+
+        setSocketStatus('error');
+      };
+
+      socket.onclose = () => {
+        if (isUnmounted) {
+          return;
+        }
+
+        socketRef.current = null;
+        setSocketStatus('offline');
+
+        if (!shouldReconnect) {
+          return;
+        }
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectSocket();
+        }, 2500);
+      };
     };
 
-    socket.onerror = () => {
-      if (isUnmounted) {
-        return;
-      }
-
-      setSocketStatus('error');
-    };
-
-    socket.onclose = () => {
-      if (isUnmounted) {
-        return;
-      }
-
-      setSocketStatus('offline');
-    };
+    connectSocket();
 
     return () => {
       isUnmounted = true;
-      socket.close();
-      socketRef.current = null;
+      shouldReconnect = false;
+      clearReconnectTimer();
+
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
     };
   }, [currentUser, socketUrl]);
 
@@ -349,15 +409,24 @@ function App() {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const toggleTheme = () => {
+    setTheme((previousTheme) => (previousTheme === 'light' ? 'dark' : 'light'));
+  };
+
   if (!currentUser) {
     return (
-      <div className="chat-shell auth-shell">
+      <div className={`chat-shell auth-shell theme-${theme}`}>
         <div className="glow-layer glow-one" />
         <div className="glow-layer glow-two" />
 
         <main className="auth-layout">
           <section className="auth-panel">
-            <p className="auth-kicker">Secure Access</p>
+            <div className="auth-head">
+              <p className="auth-kicker">Secure Access</p>
+              <button type="button" className="theme-btn" onClick={toggleTheme}>
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+            </div>
             <h1>Real-time ChatApp</h1>
             <p className="auth-subtext">
               Sign in to continue your conversations, or create a new account to start chatting.
@@ -421,7 +490,7 @@ function App() {
   }
 
   return (
-    <div className="chat-shell">
+    <div className={`chat-shell theme-${theme}`}>
       <div className="glow-layer glow-one" />
       <div className="glow-layer glow-two" />
 
@@ -484,6 +553,9 @@ function App() {
               <div className={`topbar-chip socket-${socketStatus}`}>
                 Socket {socketStatus}
               </div>
+              <button type="button" className="theme-btn" onClick={toggleTheme}>
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
               <button type="button" className="logout-btn" onClick={logout}>
                 Logout
               </button>
