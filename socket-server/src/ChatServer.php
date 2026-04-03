@@ -33,6 +33,8 @@ class ChatServer implements MessageComponentInterface
             'type' => 'connected',
             'message' => 'WebSocket connected. Authenticate with {"type":"auth","userId":1}',
         ]);
+
+        $this->broadcastUsersRefresh();
     }
 
     public function onMessage(ConnectionInterface $from, $msg): void
@@ -87,6 +89,7 @@ class ChatServer implements MessageComponentInterface
             }
 
             $this->clients->detach($conn);
+            $this->broadcastUsersRefresh();
         }
     }
 
@@ -129,6 +132,8 @@ class ChatServer implements MessageComponentInterface
             'userId' => $userId,
             'message' => 'Authenticated',
         ]);
+
+        $this->broadcastUsersRefresh();
     }
 
     private function handlePrivateMessage(ConnectionInterface $from, int $senderId, array $payload): void
@@ -202,6 +207,19 @@ class ChatServer implements MessageComponentInterface
     private function sendJson(ConnectionInterface $conn, array $payload): void
     {
         $conn->send((string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    private function broadcastUsersRefresh(): void
+    {
+        foreach ($this->clients as $client) {
+            if (!$client instanceof ConnectionInterface) {
+                continue;
+            }
+
+            $this->sendJson($client, [
+                'type' => 'users_refresh',
+            ]);
+        }
     }
 
     private function userExists(int $userId): bool

@@ -3,6 +3,8 @@ import './App.css';
 import RegisterPage from './components/RegisterPage';
 import Notification from './components/notification';
 import Profile from './components/profile';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faPaperPlane } from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
 
@@ -82,32 +84,60 @@ function App() {
     setNotifications((previous) => previous.filter((item) => item.id !== id));
   }, []);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async ({ silent = false } = {}) => {
     if (!currentUser) {
       return;
     }
 
     try {
-      setLoadingUsers(true);
-      const response = await fetch(`${apiBase}/users.php`);
+      if (!silent) {
+        setLoadingUsers(true);
+      }
+
+      const response = await fetch(`${apiBase}/users.php?user_id=${encodeURIComponent(String(currentUser.id))}`, {
+        cache: 'no-store',
+      });
       const result = await response.json();
 
       if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to load users');
       }
 
-      const loadedUsers = (result.data || []).filter((user) => user.id !== currentUser.id);
+      const currentUserId = Number(currentUser.id);
+      const loadedUsers = (result.data || [])
+        .map((user) => ({
+          ...user,
+          id: Number(user.id),
+          has_conversation: Number(user.has_conversation || 0),
+        }))
+        .filter((user) => user.id !== currentUserId);
+
+      loadedUsers.sort((left, right) => {
+        if (right.has_conversation !== left.has_conversation) {
+          return right.has_conversation - left.has_conversation;
+        }
+
+        return String(left.username || '').localeCompare(String(right.username || ''));
+      });
       setUsers(loadedUsers);
 
-      if (loadedUsers.length > 0) {
-        setActiveUserId((previousId) => previousId || loadedUsers[0].id);
-      } else {
-        setActiveUserId(null);
-      }
+      setActiveUserId((previousId) => {
+        if (loadedUsers.length === 0) {
+          return null;
+        }
+
+        if (previousId && loadedUsers.some((user) => user.id === previousId)) {
+          return previousId;
+        }
+
+        return loadedUsers[0].id;
+      });
     } catch (err) {
       setChatError(err.message || 'Unable to connect to API');
     } finally {
-      setLoadingUsers(false);
+      if (!silent) {
+        setLoadingUsers(false);
+      }
     }
   }, [apiBase, currentUser]);
 
@@ -141,6 +171,20 @@ function App() {
     }
 
     fetchUsers();
+  }, [currentUser, fetchUsers]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      fetchUsers({ silent: true });
+    }, 8000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, [currentUser, fetchUsers]);
 
   useEffect(() => {
@@ -327,6 +371,11 @@ function App() {
             return;
           }
 
+          if (payload.type === 'users_refresh') {
+            fetchUsers({ silent: true });
+            return;
+          }
+
           if (payload.type !== 'new_message' && payload.type !== 'message_sent') {
             return;
           }
@@ -401,7 +450,7 @@ function App() {
         socketRef.current = null;
       }
     };
-  }, [currentUser, socketUrl]);
+  }, [currentUser, socketUrl, fetchUsers]);
 
   const sendMessage = async (event) => {
     event.preventDefault();
@@ -674,14 +723,6 @@ function App() {
           className={`chat-sidebar ${isSidebarScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
           onScroll={bumpSidebarScrollbarVisibility}
         >
-          <div className="brand-row">
-            <div className="brand-badge">K</div>
-            <div>
-              <p className="brand-kicker">Realtime Chat</p>
-              <h1>Chat Control</h1>
-            </div>
-          </div>
-
           <div className="profile-card">
             <div className="profile-card-head">
               {renderAvatar(currentUser, 'avatar avatar-large')}
@@ -790,7 +831,7 @@ function App() {
               disabled={!activeUser}
             />
             <button type="submit" disabled={!activeUser || !draft.trim()}>
-              Send
+              <FontAwesomeIcon icon={faPaperPlane} />
             </button>
           </form>
         </section>
