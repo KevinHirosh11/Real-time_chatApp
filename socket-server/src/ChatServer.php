@@ -164,7 +164,11 @@ class ChatServer implements MessageComponentInterface
             ]);
 
             $messageId = (int) $this->pdo->lastInsertId();
-            $createdAt = date('Y-m-d H:i:s');
+            $createdAtStmt = $this->pdo->prepare('SELECT created_at FROM messages WHERE id = :id LIMIT 1');
+            $createdAtStmt->execute([':id' => $messageId]);
+            $createdAtRaw = (string) ($createdAtStmt->fetchColumn() ?: '');
+
+            $createdAt = $this->toSriLankaIso($createdAtRaw);
 
             $packet = [
                 'type' => 'private_message',
@@ -229,9 +233,28 @@ class ChatServer implements MessageComponentInterface
 
         $dsn = "mysql:host={$host};port={$port};dbname={$dbName};charset=utf8mb4";
 
-        return new PDO($dsn, $username, $password, [
+        $pdo = new PDO($dsn, $username, $password, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
+
+        $pdo->exec("SET time_zone = '+00:00'");
+
+        return $pdo;
+    }
+
+    private function toSriLankaIso(string $timestamp): string
+    {
+        $value = trim($timestamp);
+        if ($value === '') {
+            return (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM);
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $value, new \DateTimeZone('UTC'));
+        if (!$date) {
+            return $value;
+        }
+
+        return $date->setTimezone(new \DateTimeZone('Asia/Colombo'))->format(\DateTimeInterface::ATOM);
     }
 }

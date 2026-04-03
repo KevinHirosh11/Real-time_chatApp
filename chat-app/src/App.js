@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import RegisterPage from './components/RegisterPage';
+import Notification from './components/notification';
 import Profile from './components/profile';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
@@ -39,10 +40,17 @@ function App() {
   const [chatError, setChatError] = useState('');
   const [socketStatus, setSocketStatus] = useState('offline');
   const [theme, setTheme] = useState(getInitialTheme);
+  const [notifications, setNotifications] = useState([]);
+  const [isAtMessageBottom, setIsAtMessageBottom] = useState(true);
 
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const activeUserIdRef = useRef(null);
+  const messagesAreaRef = useRef(null);
+  const sidebarHideTimerRef = useRef(null);
+  const messagesHideTimerRef = useRef(null);
+  const [isSidebarScrollbarVisible, setIsSidebarScrollbarVisible] = useState(true);
+  const [isMessagesScrollbarVisible, setIsMessagesScrollbarVisible] = useState(true);
 
   const activeUser = users.find((user) => user.id === activeUserId) || null;
 
@@ -60,6 +68,19 @@ function App() {
 
     return <div className={className}>{username.charAt(0).toUpperCase()}</div>;
   };
+
+  const pushNotification = useCallback((message, type = 'info') => {
+    if (!message) {
+      return;
+    }
+
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setNotifications((previous) => [...previous, { id, message, type }]);
+  }, []);
+
+  const dismissNotification = useCallback((id) => {
+    setNotifications((previous) => previous.filter((item) => item.id !== id));
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     if (!currentUser) {
@@ -129,11 +150,98 @@ function App() {
   useEffect(() => {
     if (!currentUser || !activeUser) {
       setMessages([]);
+      setIsAtMessageBottom(true);
       return;
     }
 
     fetchMessages(currentUser.id, activeUser.id);
   }, [currentUser, activeUser, fetchMessages]);
+
+  useEffect(() => {
+    if (!activeUser || loadingMessages) {
+      return;
+    }
+
+    const container = messagesAreaRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (!isAtMessageBottom) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  }, [messages, activeUser, loadingMessages, isAtMessageBottom]);
+
+  useEffect(() => {
+    const sidebarTimer = window.setTimeout(() => {
+      setIsSidebarScrollbarVisible(false);
+    }, 3000);
+
+    const messagesTimer = window.setTimeout(() => {
+      setIsMessagesScrollbarVisible(false);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(sidebarTimer);
+      window.clearTimeout(messagesTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sidebarHideTimerRef.current) {
+        window.clearTimeout(sidebarHideTimerRef.current);
+      }
+
+      if (messagesHideTimerRef.current) {
+        window.clearTimeout(messagesHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  const bumpSidebarScrollbarVisibility = () => {
+    setIsSidebarScrollbarVisible(true);
+
+    if (sidebarHideTimerRef.current) {
+      window.clearTimeout(sidebarHideTimerRef.current);
+    }
+
+    sidebarHideTimerRef.current = window.setTimeout(() => {
+      setIsSidebarScrollbarVisible(false);
+    }, 3000);
+  };
+
+  const bumpMessagesScrollbarVisibility = () => {
+    setIsMessagesScrollbarVisible(true);
+
+    if (messagesHideTimerRef.current) {
+      window.clearTimeout(messagesHideTimerRef.current);
+    }
+
+    messagesHideTimerRef.current = window.setTimeout(() => {
+      setIsMessagesScrollbarVisible(false);
+    }, 3000);
+  };
+
+  const handleMessagesScroll = () => {
+    const container = messagesAreaRef.current;
+    if (!container) {
+      return;
+    }
+
+    bumpMessagesScrollbarVisibility();
+
+    const threshold = 14;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setIsAtMessageBottom(distanceFromBottom <= threshold);
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -142,6 +250,18 @@ function App() {
 
     document.body.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (authError) {
+      pushNotification(authError, 'error');
+    }
+  }, [authError, pushNotification]);
+
+  useEffect(() => {
+    if (chatError) {
+      pushNotification(chatError, 'error');
+    }
+  }, [chatError, pushNotification]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -419,8 +539,26 @@ function App() {
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!dateString) {
+      return '';
+    }
+
+    const raw = String(dateString).trim();
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+      ? `${raw.replace(' ', 'T')}Z`
+      : raw;
+
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      return raw;
+    }
+
+    return date.toLocaleTimeString('en-LK', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Asia/Colombo',
+    });
   };
 
   const toggleTheme = () => {
@@ -451,6 +589,7 @@ function App() {
   if (!currentUser) {
     return (
       <div className={`chat-shell auth-shell theme-${theme}`}>
+        <Notification items={notifications} onDismiss={dismissNotification} />
         <div className="glow-layer glow-one" />
         <div className="glow-layer glow-two" />
 
@@ -526,11 +665,15 @@ function App() {
 
   return (
     <div className={`chat-shell theme-${theme}`}>
+      <Notification items={notifications} onDismiss={dismissNotification} />
       <div className="glow-layer glow-one" />
       <div className="glow-layer glow-two" />
 
       <main className="chat-layout">
-        <aside className="chat-sidebar">
+        <aside
+          className={`chat-sidebar ${isSidebarScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
+          onScroll={bumpSidebarScrollbarVisibility}
+        >
           <div className="brand-row">
             <div className="brand-badge">K</div>
             <div>
@@ -608,7 +751,11 @@ function App() {
             </div>
           </header>
 
-          <div className="messages-area">
+          <div
+            className={`messages-area ${isMessagesScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
+            ref={messagesAreaRef}
+            onScroll={handleMessagesScroll}
+          >
             {chatError ? <p className="error-banner">{chatError}</p> : null}
 
             {!activeUser ? <p className="helper-text">Select a contact to begin messaging.</p> : null}

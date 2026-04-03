@@ -4,6 +4,28 @@ declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/config/database.php';
 
+function toSriLankaIso(?string $timestamp): ?string
+{
+    $value = trim((string) $timestamp);
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        $utc = new DateTimeZone('UTC');
+        $colombo = new DateTimeZone('Asia/Colombo');
+        $date = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $value, $utc);
+
+        if (!$date) {
+            return $value;
+        }
+
+        return $date->setTimezone($colombo)->format(DateTimeInterface::ATOM);
+    } catch (Throwable $e) {
+        return $value;
+    }
+}
+
 try {
     $pdo = getDbConnection();
 
@@ -30,6 +52,11 @@ try {
         ]);
 
         $messages = $stmt->fetchAll();
+
+        foreach ($messages as &$messageRow) {
+            $messageRow['created_at'] = toSriLankaIso($messageRow['created_at'] ?? null);
+        }
+        unset($messageRow);
 
         jsonResponse(200, [
             'success' => true,
