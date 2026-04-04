@@ -518,7 +518,14 @@
   font-weight: 600;
 }
 
+.contact-meta {
+  min-width: 0;
+}
+
 .contact-item small {
+  display: block;
+  margin-top: 0.2rem;
+  line-height: 1.35;
   color: #60849b;
 }
 
@@ -570,6 +577,12 @@
   margin: 0.32rem 0 0;
   font-family: 'Space Grotesk', sans-serif;
   color: #14384f;
+}
+
+.active-user-presence {
+  margin: 0.18rem 0 0;
+  color: #5f8197;
+  font-size: 0.86rem;
 }
 
 .topbar-chip {
@@ -810,6 +823,10 @@
 .chat-shell.theme-dark .contact-item p,
 .chat-shell.theme-dark .profile-card h2 {
   color: #e7f2f9;
+}
+
+.chat-shell.theme-dark .active-user-presence {
+  color: #96afc0;
 }
 
 .chat-shell.theme-dark .auth-switch {

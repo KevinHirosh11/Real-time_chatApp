@@ -610,6 +610,73 @@ function App() {
     });
   };
 
+  const formatLastSeenText = (dateString, isOnline = false) => {
+    if (isOnline) {
+      return 'online';
+    }
+
+    if (!dateString) {
+      return 'last seen recently';
+    }
+
+    const raw = String(dateString).trim();
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+      ? `${raw.replace(' ', 'T')}Z`
+      : raw;
+
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      return 'last seen recently';
+    }
+
+    const timeText = date.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Colombo',
+    });
+
+    const todayText = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Colombo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+
+    const dateText = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Colombo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+
+    if (dateText === todayText) {
+      return `last seen today at ${timeText}`;
+    }
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayText = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Colombo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(yesterday);
+
+    if (dateText === yesterdayText) {
+      return `last seen yesterday at ${timeText}`;
+    }
+
+    const calendarText = date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'Asia/Colombo',
+    });
+
+    return `last seen on ${calendarText} at ${timeText}`;
+  };
+
   const toggleTheme = () => {
     setTheme((previousTheme) => (previousTheme === 'light' ? 'dark' : 'light'));
   };
@@ -763,9 +830,9 @@ function App() {
                     onClick={() => setActiveUserId(user.id)}
                   >
                     {renderAvatar(user)}
-                    <div>
+                    <div className="contact-meta">
                       <p>{user.username}</p>
-                      <small>{user.status === 'online' ? 'Online' : 'Offline'}</small>
+                      <small>{formatLastSeenText(user.last_seen, user.status === 'online')}</small>
                     </div>
                   </button>
                 ))}
@@ -778,6 +845,11 @@ function App() {
             <div>
               <p className="label">Conversation</p>
               <h2>{activeUser ? activeUser.username : 'Pick a contact'}</h2>
+              {activeUser ? (
+                <p className="active-user-presence">
+                  {formatLastSeenText(activeUser.last_seen, activeUser.status === 'online')}
+                </p>
+              ) : null}
             </div>
             <div className="topbar-actions">
               <div className={`topbar-chip socket-${socketStatus}`}>

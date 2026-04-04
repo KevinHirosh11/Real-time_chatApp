@@ -27,6 +27,7 @@ try {
              u.username,
              u.email,
              u.status,
+             u.last_seen,
              u.profile_image,
              u.bio,
              u.created_at,
