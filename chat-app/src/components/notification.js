@@ -1,4 +1,17 @@
 import { useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faBell, faCircleCheck, faCircleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
+
+const getNotificationIcon = (type) => {
+	switch (String(type || 'info')) {
+		case 'success':
+			return faCircleCheck;
+		case 'error':
+			return faCircleExclamation;
+		default:
+			return faBell;
+	}
+};
 
 function NotificationItem({ item, onDismiss, timeout }) {
 	useEffect(() => {
@@ -13,14 +26,19 @@ function NotificationItem({ item, onDismiss, timeout }) {
 
 	return (
 		<div className={`toast toast-${item.type || 'info'}`} role="status" aria-live="polite">
-			<p>{item.message}</p>
+			<div className="toast-content">
+				<span className="toast-icon" aria-hidden="true">
+					<FontAwesomeIcon icon={getNotificationIcon(item.type)} />
+				</span>
+				<p>{item.message}</p>
+			</div>
 			<button
 				type="button"
 				className="toast-close"
 				onClick={() => onDismiss(item.id)}
 				aria-label="Dismiss notification"
 			>
-				x
+				<FontAwesomeIcon icon={faXmark} />
 			</button>
 		</div>
 	);

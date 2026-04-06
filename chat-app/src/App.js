@@ -7,6 +7,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPaperPlane, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
+const GROUPS_STORAGE_PREFIX = 'chat_app_groups';
+const GROUP_MESSAGES_STORAGE_PREFIX = 'chat_app_group_messages';
 
 const getInitialTheme = () => {
   if (typeof window === 'undefined') {
@@ -35,6 +37,21 @@ function App() {
 
   const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState(null);
+  const [activeChatMode, setActiveChatMode] = useState('direct');
+  const [groups, setGroups] = useState([]);
+  const [activeGroupId, setActiveGroupId] = useState(null);
+  const [groupMessagesById, setGroupMessagesById] = useState({});
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false);
+  const [groupForm, setGroupForm] = useState({
+    name: '',
+    description: '',
+    image: '',
+    memberIds: [],
+    adminIds: [],
+    onlyAdminsCanMessage: false,
+    onlyAdminsCanEdit: true,
+  });
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -60,6 +77,9 @@ function App() {
   const [isMessagesScrollbarVisible, setIsMessagesScrollbarVisible] = useState(true);
 
   const activeUser = users.find((user) => user.id === activeUserId) || null;
+  const activeGroup = groups.find((group) => group.id === activeGroupId) || null;
+  const isGroupChatActive = activeChatMode === 'group' && Boolean(activeGroup);
+  const visibleMessages = isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
 
   const renderAvatar = (user, className = 'avatar') => {
     const username = user && user.username ? String(user.username) : '?';
@@ -88,6 +108,88 @@ function App() {
   const dismissNotification = useCallback((id) => {
     setNotifications((previous) => previous.filter((item) => item.id !== id));
   }, []);
+
+  const getGroupsStorageKey = useCallback((userId) => {
+    return `${GROUPS_STORAGE_PREFIX}_${userId}`;
+  }, []);
+
+  const getGroupMessagesStorageKey = useCallback((userId) => {
+    return `${GROUP_MESSAGES_STORAGE_PREFIX}_${userId}`;
+  }, []);
+
+  const isGroupAdmin = useCallback(
+    (group) => {
+      if (!group || !currentUser) {
+        return false;
+      }
+
+      return Array.isArray(group.adminIds) && group.adminIds.includes(Number(currentUser.id));
+    },
+    [currentUser]
+  );
+
+  const isCurrentUserInActiveGroup =
+    Boolean(activeGroup && currentUser) &&
+    Array.isArray(activeGroup.memberIds) &&
+    activeGroup.memberIds.includes(Number(currentUser.id));
+
+  const canCurrentUserEditGroup =
+    Boolean(activeGroup) &&
+    (activeGroup?.permissions?.onlyAdminsCanEdit ? isGroupAdmin(activeGroup) : isCurrentUserInActiveGroup);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === 'undefined') {
+      setGroups([]);
+      setGroupMessagesById({});
+      setActiveGroupId(null);
+      return;
+    }
+
+    try {
+      const storedGroupsRaw = window.localStorage.getItem(getGroupsStorageKey(currentUser.id));
+      const storedMessagesRaw = window.localStorage.getItem(getGroupMessagesStorageKey(currentUser.id));
+
+      const parsedGroups = storedGroupsRaw ? JSON.parse(storedGroupsRaw) : [];
+      const parsedMessages = storedMessagesRaw ? JSON.parse(storedMessagesRaw) : {};
+
+      setGroups(Array.isArray(parsedGroups) ? parsedGroups : []);
+      setGroupMessagesById(parsedMessages && typeof parsedMessages === 'object' ? parsedMessages : {});
+      setActiveGroupId((previousId) => {
+        if (previousId && Array.isArray(parsedGroups) && parsedGroups.some((group) => group.id === previousId)) {
+          return previousId;
+        }
+
+        if (Array.isArray(parsedGroups) && parsedGroups.length > 0) {
+          return parsedGroups[0].id;
+        }
+
+        return null;
+      });
+    } catch {
+      setGroups([]);
+      setGroupMessagesById({});
+      setActiveGroupId(null);
+    }
+  }, [currentUser, getGroupsStorageKey, getGroupMessagesStorageKey]);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(getGroupsStorageKey(currentUser.id), JSON.stringify(groups));
+  }, [groups, currentUser, getGroupsStorageKey]);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      getGroupMessagesStorageKey(currentUser.id),
+      JSON.stringify(groupMessagesById)
+    );
+  }, [groupMessagesById, currentUser, getGroupMessagesStorageKey]);
 
   const fetchUsers = useCallback(async ({ silent = false } = {}) => {
     if (!currentUser) {
@@ -179,6 +281,22 @@ function App() {
   }, [currentUser, fetchUsers]);
 
   useEffect(() => {
+    if (groups.length === 0) {
+      setActiveGroupId(null);
+      if (activeChatMode === 'group') {
+        setActiveChatMode('direct');
+      }
+      return;
+    }
+
+    if (activeGroupId && groups.some((group) => group.id === activeGroupId)) {
+      return;
+    }
+
+    setActiveGroupId(groups[0].id);
+  }, [groups, activeGroupId, activeChatMode]);
+
+  useEffect(() => {
     if (!currentUser) {
       return undefined;
     }
@@ -197,17 +315,17 @@ function App() {
   }, [activeUserId]);
 
   useEffect(() => {
-    if (!currentUser || !activeUser) {
+    if (!currentUser || !activeUser || isGroupChatActive) {
       setMessages([]);
       setIsAtMessageBottom(true);
       return;
     }
 
     fetchMessages(currentUser.id, activeUser.id);
-  }, [currentUser, activeUser, fetchMessages]);
+  }, [currentUser, activeUser, fetchMessages, isGroupChatActive]);
 
   useEffect(() => {
-    if (!activeUser || loadingMessages) {
+    if ((!activeUser && !isGroupChatActive) || loadingMessages) {
       return;
     }
 
@@ -226,7 +344,7 @@ function App() {
         behavior: 'smooth',
       });
     });
-  }, [messages, activeUser, loadingMessages, isAtMessageBottom]);
+  }, [visibleMessages, activeUser, isGroupChatActive, loadingMessages, isAtMessageBottom]);
 
   useEffect(() => {
     const sidebarTimer = window.setTimeout(() => {
@@ -390,6 +508,10 @@ function App() {
           const payload = JSON.parse(event.data);
 
           if (payload.type === 'error') {
+            if (payload.message === 'Unsupported message type') {
+              return;
+            }
+
             setChatError(payload.message || 'Socket error');
             return;
           }
@@ -399,11 +521,208 @@ function App() {
             return;
           }
 
+          if (payload.type === 'group_message') {
+            const packet = payload.data || {};
+            const incomingGroup = packet.group && typeof packet.group === 'object' ? packet.group : {};
+            const incomingGroupId = String(packet.groupId || incomingGroup.id || '').trim();
+            const incomingSenderId = Number(packet.senderId || 0);
+            const incomingMemberIds = Array.isArray(incomingGroup.memberIds)
+              ? incomingGroup.memberIds.map((id) => Number(id)).filter((id) => id > 0)
+              : [];
+
+            if (!incomingGroupId || incomingSenderId <= 0) {
+              return;
+            }
+
+            if (!incomingMemberIds.includes(Number(currentUser.id))) {
+              return;
+            }
+
+            const normalizedGroup = {
+              id: incomingGroupId,
+              name: String(incomingGroup.name || 'Group'),
+              description: String(incomingGroup.description || ''),
+              image: String(incomingGroup.image || ''),
+              memberIds: incomingMemberIds,
+              adminIds: Array.isArray(incomingGroup.adminIds)
+                ? incomingGroup.adminIds.map((id) => Number(id)).filter((id) => id > 0)
+                : [incomingSenderId],
+              permissions:
+                incomingGroup.permissions && typeof incomingGroup.permissions === 'object'
+                  ? incomingGroup.permissions
+                  : { onlyAdminsCanMessage: false, onlyAdminsCanEdit: true },
+              createdBy: Number(incomingGroup.createdBy || incomingSenderId),
+            };
+
+            setGroups((previous) => {
+              const existingIndex = previous.findIndex((group) => group.id === incomingGroupId);
+              if (existingIndex === -1) {
+                return [normalizedGroup, ...previous];
+              }
+
+              const next = [...previous];
+              next[existingIndex] = { ...next[existingIndex], ...normalizedGroup };
+              return next;
+            });
+
+            const nextGroupMessage = {
+              id: Number(packet.id || Date.now()),
+              sender_id: incomingSenderId,
+              receiver_id: 0,
+              message: String(packet.message || ''),
+              message_type: String(packet.messageType || 'text'),
+              created_at: String(packet.createdAt || new Date().toISOString()),
+            };
+
+            setGroupMessagesById((previous) => {
+              const existingMessages = previous[incomingGroupId] || [];
+              const exists = existingMessages.some((message) => Number(message.id) === Number(nextGroupMessage.id));
+              if (exists) {
+                return previous;
+              }
+
+              return {
+                ...previous,
+                [incomingGroupId]: [...existingMessages, nextGroupMessage],
+              };
+            });
+
+            return;
+          }
+
           if (payload.type !== 'new_message' && payload.type !== 'message_sent') {
             return;
           }
 
           const packet = payload.data || {};
+
+          if (String(packet.messageType || '') === 'group_meta') {
+            try {
+              const encoded = JSON.parse(String(packet.message || '{}'));
+              const incomingGroup = encoded.group && typeof encoded.group === 'object' ? encoded.group : null;
+              const action = String(encoded.action || 'upsert');
+
+              if (!incomingGroup || !incomingGroup.id) {
+                return;
+              }
+
+              const normalizedGroup = {
+                id: String(incomingGroup.id),
+                name: String(incomingGroup.name || 'Group'),
+                description: String(incomingGroup.description || ''),
+                image: String(incomingGroup.image || ''),
+                memberIds: Array.isArray(incomingGroup.memberIds)
+                  ? incomingGroup.memberIds.map((id) => Number(id)).filter((id) => id > 0)
+                  : [],
+                adminIds: Array.isArray(incomingGroup.adminIds)
+                  ? incomingGroup.adminIds.map((id) => Number(id)).filter((id) => id > 0)
+                  : [],
+                permissions:
+                  incomingGroup.permissions && typeof incomingGroup.permissions === 'object'
+                    ? incomingGroup.permissions
+                    : { onlyAdminsCanMessage: false, onlyAdminsCanEdit: true },
+                createdBy: Number(incomingGroup.createdBy || 0),
+              };
+
+              if (!normalizedGroup.memberIds.includes(Number(currentUser.id))) {
+                return;
+              }
+
+              if (action === 'remove') {
+                setGroups((previous) => previous.filter((group) => group.id !== normalizedGroup.id));
+                return;
+              }
+
+              setGroups((previous) => {
+                const existingIndex = previous.findIndex((group) => group.id === normalizedGroup.id);
+                if (existingIndex === -1) {
+                  return [normalizedGroup, ...previous];
+                }
+
+                const next = [...previous];
+                next[existingIndex] = { ...next[existingIndex], ...normalizedGroup };
+                return next;
+              });
+            } catch {
+              setChatError('Received invalid group metadata payload');
+            }
+
+            return;
+          }
+
+          if (String(packet.messageType || '') === 'group') {
+            try {
+              const encoded = JSON.parse(String(packet.message || '{}'));
+              const incomingGroup = encoded.group && typeof encoded.group === 'object' ? encoded.group : {};
+              const incomingGroupId = String(encoded.groupId || incomingGroup.id || '').trim();
+              const incomingSenderId = Number(packet.senderId || 0);
+              const incomingMemberIds = Array.isArray(incomingGroup.memberIds)
+                ? incomingGroup.memberIds.map((id) => Number(id)).filter((id) => id > 0)
+                : [];
+
+              if (!incomingGroupId || incomingSenderId <= 0) {
+                return;
+              }
+
+              if (!incomingMemberIds.includes(Number(currentUser.id))) {
+                return;
+              }
+
+              const normalizedGroup = {
+                id: incomingGroupId,
+                name: String(incomingGroup.name || 'Group'),
+                description: String(incomingGroup.description || ''),
+                image: String(incomingGroup.image || ''),
+                memberIds: incomingMemberIds,
+                adminIds: Array.isArray(incomingGroup.adminIds)
+                  ? incomingGroup.adminIds.map((id) => Number(id)).filter((id) => id > 0)
+                  : [incomingSenderId],
+                permissions:
+                  incomingGroup.permissions && typeof incomingGroup.permissions === 'object'
+                    ? incomingGroup.permissions
+                    : { onlyAdminsCanMessage: false, onlyAdminsCanEdit: true },
+                createdBy: Number(incomingGroup.createdBy || incomingSenderId),
+              };
+
+              setGroups((previous) => {
+                const existingIndex = previous.findIndex((group) => group.id === incomingGroupId);
+                if (existingIndex === -1) {
+                  return [normalizedGroup, ...previous];
+                }
+
+                const next = [...previous];
+                next[existingIndex] = { ...next[existingIndex], ...normalizedGroup };
+                return next;
+              });
+
+              const nextGroupMessage = {
+                id: Number(packet.id || Date.now()),
+                sender_id: incomingSenderId,
+                receiver_id: 0,
+                message: String(encoded.text || ''),
+                message_type: 'text',
+                created_at: String(packet.createdAt || new Date().toISOString()),
+              };
+
+              setGroupMessagesById((previous) => {
+                const existingMessages = previous[incomingGroupId] || [];
+                const exists = existingMessages.some((message) => Number(message.id) === Number(nextGroupMessage.id));
+                if (exists) {
+                  return previous;
+                }
+
+                return {
+                  ...previous,
+                  [incomingGroupId]: [...existingMessages, nextGroupMessage],
+                };
+              });
+            } catch {
+              setChatError('Received invalid group message payload');
+            }
+
+            return;
+          }
+
           const incoming = {
             id: Number(packet.id),
             sender_id: Number(packet.senderId),
@@ -480,7 +799,75 @@ function App() {
     event.preventDefault();
     const trimmedDraft = draft.trim();
 
-    if (!currentUser || !activeUser || (!trimmedDraft && !selectedAttachment)) {
+    if (!currentUser || (!activeUser && !isGroupChatActive) || (!trimmedDraft && !selectedAttachment)) {
+      return;
+    }
+
+    if (isGroupChatActive) {
+      if (activeGroup.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup)) {
+        setChatError('Only group admins can send messages in this group');
+        return;
+      }
+
+      const messageText = trimmedDraft || `Attachment: ${selectedAttachment.file.name}`;
+      const groupMessageId = Date.now();
+      const groupCreatedAt = new Date().toISOString();
+      const nextMessage = {
+        id: groupMessageId,
+        sender_id: Number(currentUser.id),
+        receiver_id: 0,
+        message: messageText,
+        message_type: 'text',
+        created_at: groupCreatedAt,
+      };
+
+      setGroupMessagesById((previous) => {
+        const existingGroupMessages = previous[activeGroup.id] || [];
+        return {
+          ...previous,
+          [activeGroup.id]: [...existingGroupMessages, nextMessage],
+        };
+      });
+
+      setDraft('');
+      setSelectedAttachment(null);
+      setIsAttachmentMenuOpen(false);
+
+      const socket = socketRef.current;
+      const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
+      if (canSendWithSocket) {
+        const groupEnvelope = JSON.stringify({
+          groupId: activeGroup.id,
+          text: messageText,
+          group: {
+            id: activeGroup.id,
+            name: activeGroup.name,
+            description: activeGroup.description,
+            image: activeGroup.image,
+            memberIds: activeGroup.memberIds,
+            adminIds: activeGroup.adminIds,
+            permissions: activeGroup.permissions,
+            createdBy: activeGroup.createdBy,
+          },
+        });
+
+        (activeGroup.memberIds || [])
+          .map((id) => Number(id))
+          .filter((id) => id > 0 && id !== Number(currentUser.id))
+          .forEach((memberId) => {
+            socket.send(
+              JSON.stringify({
+                type: 'relay_message',
+                id: groupMessageId,
+                receiverId: memberId,
+                message: groupEnvelope,
+                messageType: 'group',
+                createdAt: groupCreatedAt,
+              })
+            );
+          });
+      }
+
       return;
     }
 
@@ -679,9 +1066,15 @@ function App() {
     setCurrentUser(null);
     setUsers([]);
     setMessages([]);
+    setGroups([]);
+    setGroupMessagesById({});
+    setActiveGroupId(null);
+    setActiveChatMode('direct');
     setDraft('');
     setSelectedAttachment(null);
     setIsAttachmentMenuOpen(false);
+    setIsCreateGroupOpen(false);
+    setIsGroupSettingsOpen(false);
     setActiveUserId(null);
     setChatError('');
   };
@@ -847,6 +1240,224 @@ function App() {
     setTheme((previousTheme) => (previousTheme === 'light' ? 'dark' : 'light'));
   };
 
+  const getUserNameById = useCallback(
+    (userId) => {
+      const numericId = Number(userId);
+
+      if (currentUser && Number(currentUser.id) === numericId) {
+        return currentUser.username || 'You';
+      }
+
+      const matchedUser = users.find((user) => Number(user.id) === numericId);
+      return matchedUser ? matchedUser.username : 'Member';
+    },
+    [currentUser, users]
+  );
+
+  const relayGroupMetadata = useCallback(
+    (group, action = 'upsert') => {
+      if (!group || !currentUser) {
+        return;
+      }
+
+      const socket = socketRef.current;
+      const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
+      if (!canSendWithSocket) {
+        return;
+      }
+
+      const envelope = JSON.stringify({
+        action,
+        group,
+      });
+
+      (group.memberIds || [])
+        .map((id) => Number(id))
+        .filter((id) => id > 0 && id !== Number(currentUser.id))
+        .forEach((memberId) => {
+          socket.send(
+            JSON.stringify({
+              type: 'relay_message',
+              id: Date.now() + memberId,
+              receiverId: memberId,
+              message: envelope,
+              messageType: 'group_meta',
+              createdAt: new Date().toISOString(),
+            })
+          );
+        });
+    },
+    [currentUser]
+  );
+
+  const openCreateGroupModal = () => {
+    if (!currentUser) {
+      return;
+    }
+
+    setGroupForm({
+      name: '',
+      description: '',
+      image: '',
+      memberIds: [],
+      adminIds: [Number(currentUser.id)],
+      onlyAdminsCanMessage: false,
+      onlyAdminsCanEdit: true,
+    });
+    setIsCreateGroupOpen(true);
+  };
+
+  const openGroupSettingsModal = () => {
+    if (!activeGroup || !canCurrentUserEditGroup || !currentUser) {
+      return;
+    }
+
+    setGroupForm({
+      name: activeGroup.name || '',
+      description: activeGroup.description || '',
+      image: activeGroup.image || '',
+      memberIds: (activeGroup.memberIds || []).filter((id) => Number(id) !== Number(currentUser.id)),
+      adminIds: activeGroup.adminIds || [Number(currentUser.id)],
+      onlyAdminsCanMessage: Boolean(activeGroup.permissions?.onlyAdminsCanMessage),
+      onlyAdminsCanEdit: Boolean(activeGroup.permissions?.onlyAdminsCanEdit),
+    });
+    setIsGroupSettingsOpen(true);
+  };
+
+  const toggleMemberInForm = (memberId) => {
+    const normalizedId = Number(memberId);
+
+    setGroupForm((previous) => {
+      const hasMember = previous.memberIds.includes(normalizedId);
+      const nextMemberIds = hasMember
+        ? previous.memberIds.filter((id) => id !== normalizedId)
+        : [...previous.memberIds, normalizedId];
+
+      const nextAdminIds = hasMember
+        ? previous.adminIds.filter((id) => id !== normalizedId)
+        : previous.adminIds;
+
+      return {
+        ...previous,
+        memberIds: nextMemberIds,
+        adminIds: nextAdminIds,
+      };
+    });
+  };
+
+  const toggleAdminInForm = (memberId) => {
+    const normalizedId = Number(memberId);
+
+    setGroupForm((previous) => {
+      const isAdmin = previous.adminIds.includes(normalizedId);
+      return {
+        ...previous,
+        adminIds: isAdmin
+          ? previous.adminIds.filter((id) => id !== normalizedId)
+          : [...previous.adminIds, normalizedId],
+      };
+    });
+  };
+
+  const createGroup = (event) => {
+    event.preventDefault();
+
+    if (!currentUser) {
+      return;
+    }
+
+    const groupName = groupForm.name.trim();
+    if (!groupName) {
+      setChatError('Group name is required');
+      return;
+    }
+
+    const ownerId = Number(currentUser.id);
+    const memberIds = Array.from(new Set([ownerId, ...groupForm.memberIds.map((id) => Number(id))]));
+    const adminIds = Array.from(new Set([ownerId, ...groupForm.adminIds.filter((id) => memberIds.includes(Number(id)))]));
+
+    const nextGroup = {
+      id: `grp-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      name: groupName,
+      description: groupForm.description.trim(),
+      image: groupForm.image.trim(),
+      memberIds,
+      adminIds,
+      permissions: {
+        onlyAdminsCanMessage: groupForm.onlyAdminsCanMessage,
+        onlyAdminsCanEdit: groupForm.onlyAdminsCanEdit,
+      },
+      createdBy: ownerId,
+    };
+
+    setGroups((previous) => [nextGroup, ...previous]);
+    setGroupMessagesById((previous) => ({ ...previous, [nextGroup.id]: [] }));
+    setActiveChatMode('group');
+    setActiveGroupId(nextGroup.id);
+    setDraft('');
+    setSelectedAttachment(null);
+    setIsAttachmentMenuOpen(false);
+    relayGroupMetadata(nextGroup, 'upsert');
+    setIsCreateGroupOpen(false);
+  };
+
+  const saveGroupSettings = (event) => {
+    event.preventDefault();
+
+    if (!activeGroup || !currentUser) {
+      return;
+    }
+
+    const groupName = groupForm.name.trim();
+    if (!groupName) {
+      setChatError('Group name is required');
+      return;
+    }
+
+    const ownerId = Number(currentUser.id);
+    const memberIds = Array.from(new Set([ownerId, ...groupForm.memberIds.map((id) => Number(id))]));
+    const adminIds = Array.from(new Set([ownerId, ...groupForm.adminIds.filter((id) => memberIds.includes(Number(id)))]));
+
+    setGroups((previous) =>
+      previous.map((group) => {
+        if (group.id !== activeGroup.id) {
+          return group;
+        }
+
+        return {
+          ...group,
+          name: groupName,
+          description: groupForm.description.trim(),
+          image: groupForm.image.trim(),
+          memberIds,
+          adminIds,
+          permissions: {
+            onlyAdminsCanMessage: groupForm.onlyAdminsCanMessage,
+            onlyAdminsCanEdit: groupForm.onlyAdminsCanEdit,
+          },
+        };
+      })
+    );
+
+    relayGroupMetadata(
+      {
+        ...activeGroup,
+        name: groupName,
+        description: groupForm.description.trim(),
+        image: groupForm.image.trim(),
+        memberIds,
+        adminIds,
+        permissions: {
+          onlyAdminsCanMessage: groupForm.onlyAdminsCanMessage,
+          onlyAdminsCanEdit: groupForm.onlyAdminsCanEdit,
+        },
+      },
+      'upsert'
+    );
+
+    setIsGroupSettingsOpen(false);
+  };
+
   const handleProfileSaved = (updatedUser) => {
     if (!updatedUser || !updatedUser.id) {
       return;
@@ -976,7 +1587,12 @@ function App() {
           <div className="contacts-wrap">
             <div className="contacts-header">
               <h3>Contacts</h3>
-              <span>{users.length}</span>
+              <div className="contacts-header-actions">
+                <button type="button" className="new-group-btn" onClick={openCreateGroupModal}>
+                  New Group
+                </button>
+                <span>{users.length + groups.length}</span>
+              </div>
             </div>
 
             {loadingUsers ? <p className="helper-text">Loading users...</p> : null}
@@ -984,16 +1600,52 @@ function App() {
               <p className="helper-text">Add more users in your database to start chatting.</p>
             ) : null}
 
+            {!loadingUsers && groups.length === 0 ? (
+              <p className="helper-text">Create a group to organize contacts and team chats.</p>
+            ) : null}
+
             <div className="contact-list">
+              {groups.map((group, index) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  className={`contact-item ${isGroupChatActive && activeGroup?.id === group.id ? 'active' : ''}`}
+                  style={{ animationDelay: `${index * 70}ms` }}
+                  onClick={() => {
+                    setActiveChatMode('group');
+                    setActiveGroupId(group.id);
+                    setActiveUserId(null);
+                    setSelectedAttachment(null);
+                    setIsAttachmentMenuOpen(false);
+                  }}
+                >
+                  {group.image ? (
+                    <div className="avatar has-image">
+                      <img src={group.image} alt={`${group.name} group`} loading="lazy" />
+                    </div>
+                  ) : (
+                    <div className="avatar">{String(group.name || '#').charAt(0).toUpperCase()}</div>
+                  )}
+                  <div className="contact-meta">
+                    <p>{group.name}</p>
+                    <small>{(group.memberIds || []).length} members</small>
+                  </div>
+                </button>
+              ))}
+
               {users
                 .filter((user) => !currentUser || user.id !== currentUser.id)
                 .map((user, index) => (
                   <button
                     key={user.id}
                     type="button"
-                    className={`contact-item ${activeUserId === user.id ? 'active' : ''}`}
-                    style={{ animationDelay: `${index * 70}ms` }}
-                    onClick={() => setActiveUserId(user.id)}
+                    className={`contact-item ${!isGroupChatActive && activeUserId === user.id ? 'active' : ''}`}
+                    style={{ animationDelay: `${(groups.length + index) * 70}ms` }}
+                    onClick={() => {
+                      setActiveChatMode('direct');
+                      setActiveGroupId(null);
+                      setActiveUserId(user.id);
+                    }}
                   >
                     {renderAvatar(user)}
                     <div className="contact-meta">
@@ -1009,15 +1661,31 @@ function App() {
         <section className="chat-main">
           <header className="chat-topbar">
             <div>
-              <p className="label">Conversation</p>
-              <h2>{activeUser ? activeUser.username : 'Pick a contact'}</h2>
-              {activeUser ? (
+              <p className="label">{isGroupChatActive ? 'Group' : 'Conversation'}</p>
+              <h2>
+                {isGroupChatActive
+                  ? activeGroup?.name || 'Group'
+                  : activeUser
+                  ? activeUser.username
+                  : 'Pick a contact'}
+              </h2>
+              {isGroupChatActive ? (
+                <p className="active-user-presence">
+                  {(activeGroup?.memberIds || []).length} members
+                  {activeGroup?.description ? ` • ${activeGroup.description}` : ''}
+                </p>
+              ) : activeUser ? (
                 <p className="active-user-presence">
                   {formatLastSeenText(activeUser.last_seen, activeUser.status === 'online')}
                 </p>
               ) : null}
             </div>
             <div className="topbar-actions">
+              {isGroupChatActive && canCurrentUserEditGroup ? (
+                <button type="button" className="theme-btn" onClick={openGroupSettingsModal}>
+                  Group Settings
+                </button>
+              ) : null}
               <div className={`topbar-chip socket-${socketStatus}`}>
                 Socket {socketStatus}
               </div>
@@ -1037,23 +1705,33 @@ function App() {
           >
             {chatError ? <p className="error-banner">{chatError}</p> : null}
 
-            {!activeUser ? <p className="helper-text">Select a contact to begin messaging.</p> : null}
+            {!activeUser && !isGroupChatActive ? (
+              <p className="helper-text">Select a contact to begin messaging.</p>
+            ) : null}
 
-            {loadingMessages && activeUser ? (
+            {loadingMessages && !isGroupChatActive && activeUser ? (
               <p className="helper-text">Syncing messages...</p>
             ) : null}
 
-            {activeUser && !loadingMessages && messages.length === 0 ? (
+            {isGroupChatActive && visibleMessages.length === 0 ? (
+              <p className="helper-text">No group messages yet. Start the conversation.</p>
+            ) : null}
+
+            {activeUser && !isGroupChatActive && !loadingMessages && visibleMessages.length === 0 ? (
               <p className="helper-text">No messages yet. Start the conversation.</p>
             ) : null}
 
-            {messages.map((message) => {
-              const isOwn = currentUser && message.sender_id === currentUser.id;
+            {visibleMessages.map((message) => {
+              const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
               const attachment = getAttachmentPreview(message);
 
               return (
                 <article key={message.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
                   <div className="bubble">
+                    {isGroupChatActive && !isOwn ? (
+                      <p className="group-sender-name">{getUserNameById(message.sender_id)}</p>
+                    ) : null}
+
                     {attachment && attachment.type === 'image' && attachment.url ? (
                       <a
                         className="attachment-link image"
@@ -1094,7 +1772,10 @@ function App() {
                 type="button"
                 className="attachment-toggle"
                 onClick={() => setIsAttachmentMenuOpen((previous) => !previous)}
-                disabled={!activeUser}
+                disabled={
+                  (!activeUser && !isGroupChatActive) ||
+                  (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
+                }
                 aria-label="Add attachment"
                 aria-expanded={isAttachmentMenuOpen}
               >
@@ -1131,8 +1812,19 @@ function App() {
               type="text"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={activeUser ? `Message ${activeUser.username}...` : 'Select a user first'}
-              disabled={!activeUser}
+              placeholder={
+                isGroupChatActive
+                  ? activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup)
+                    ? 'Only admins can send messages'
+                    : 'Message group...'
+                  : activeUser
+                  ? `Message ${activeUser.username}...`
+                  : 'Select a user first'
+              }
+              disabled={
+                (!activeUser && !isGroupChatActive) ||
+                (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
+              }
             />
             {selectedAttachment ? (
               <div className="attachment-chip" title={selectedAttachment.file.name}>
@@ -1147,12 +1839,206 @@ function App() {
               </div>
             ) : null}
 
-            <button type="submit" disabled={!activeUser || (!draft.trim() && !selectedAttachment)}>
+            <button
+              type="submit"
+              disabled={
+                (!activeUser && !isGroupChatActive) ||
+                (!draft.trim() && !selectedAttachment) ||
+                (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
+              }
+            >
               <FontAwesomeIcon icon={faPaperPlane} />
             </button>
           </form>
         </section>
       </main>
+
+      {isCreateGroupOpen ? (
+        <div className="group-modal-backdrop" role="presentation" onClick={() => setIsCreateGroupOpen(false)}>
+          <section className="group-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <h3>Create New Group</h3>
+            <form className="group-form" onSubmit={createGroup}>
+              <label htmlFor="group-name">Group name</label>
+              <input
+                id="group-name"
+                type="text"
+                value={groupForm.name}
+                onChange={(event) => setGroupForm((previous) => ({ ...previous, name: event.target.value }))}
+                placeholder="Team Alpha"
+              />
+
+              <label htmlFor="group-description">Group description</label>
+              <textarea
+                id="group-description"
+                value={groupForm.description}
+                onChange={(event) =>
+                  setGroupForm((previous) => ({ ...previous, description: event.target.value }))
+                }
+                placeholder="Daily updates and quick collaboration"
+              />
+
+              <label htmlFor="group-image">Group image URL</label>
+              <input
+                id="group-image"
+                type="url"
+                value={groupForm.image}
+                onChange={(event) => setGroupForm((previous) => ({ ...previous, image: event.target.value }))}
+                placeholder="https://example.com/group-image.jpg"
+              />
+
+              <p className="group-form-label">Add members from contacts</p>
+              <div className="group-member-list">
+                {users.map((user) => {
+                  const userId = Number(user.id);
+                  const checked = groupForm.memberIds.includes(userId);
+                  const isAdmin = groupForm.adminIds.includes(userId);
+
+                  return (
+                    <label key={`member-${user.id}`} className="group-member-item">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMemberInForm(userId)}
+                      />
+                      <span>{user.username}</span>
+                      {checked ? (
+                        <button
+                          type="button"
+                          className={`member-admin-btn ${isAdmin ? 'is-admin' : ''}`}
+                          onClick={() => toggleAdminInForm(userId)}
+                        >
+                          {isAdmin ? 'Admin' : 'Make admin'}
+                        </button>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+
+              <label className="permission-toggle">
+                <input
+                  type="checkbox"
+                  checked={groupForm.onlyAdminsCanMessage}
+                  onChange={(event) =>
+                    setGroupForm((previous) => ({ ...previous, onlyAdminsCanMessage: event.target.checked }))
+                  }
+                />
+                <span>Only admins can send messages</span>
+              </label>
+
+              <label className="permission-toggle">
+                <input
+                  type="checkbox"
+                  checked={groupForm.onlyAdminsCanEdit}
+                  onChange={(event) =>
+                    setGroupForm((previous) => ({ ...previous, onlyAdminsCanEdit: event.target.checked }))
+                  }
+                />
+                <span>Only admins can edit group settings</span>
+              </label>
+
+              <div className="group-form-actions">
+                <button type="button" className="secondary-btn" onClick={() => setIsCreateGroupOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit">Create group</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isGroupSettingsOpen && activeGroup ? (
+        <div className="group-modal-backdrop" role="presentation" onClick={() => setIsGroupSettingsOpen(false)}>
+          <section className="group-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <h3>Group Settings</h3>
+            <form className="group-form" onSubmit={saveGroupSettings}>
+              <label htmlFor="edit-group-name">Group name</label>
+              <input
+                id="edit-group-name"
+                type="text"
+                value={groupForm.name}
+                onChange={(event) => setGroupForm((previous) => ({ ...previous, name: event.target.value }))}
+              />
+
+              <label htmlFor="edit-group-description">Group description</label>
+              <textarea
+                id="edit-group-description"
+                value={groupForm.description}
+                onChange={(event) =>
+                  setGroupForm((previous) => ({ ...previous, description: event.target.value }))
+                }
+              />
+
+              <label htmlFor="edit-group-image">Group image URL</label>
+              <input
+                id="edit-group-image"
+                type="url"
+                value={groupForm.image}
+                onChange={(event) => setGroupForm((previous) => ({ ...previous, image: event.target.value }))}
+              />
+
+              <p className="group-form-label">Manage members and admins</p>
+              <div className="group-member-list">
+                {users.map((user) => {
+                  const userId = Number(user.id);
+                  const checked = groupForm.memberIds.includes(userId);
+                  const isAdmin = groupForm.adminIds.includes(userId);
+
+                  return (
+                    <label key={`edit-member-${user.id}`} className="group-member-item">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMemberInForm(userId)}
+                      />
+                      <span>{user.username}</span>
+                      {checked ? (
+                        <button
+                          type="button"
+                          className={`member-admin-btn ${isAdmin ? 'is-admin' : ''}`}
+                          onClick={() => toggleAdminInForm(userId)}
+                        >
+                          {isAdmin ? 'Admin' : 'Make admin'}
+                        </button>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+
+              <label className="permission-toggle">
+                <input
+                  type="checkbox"
+                  checked={groupForm.onlyAdminsCanMessage}
+                  onChange={(event) =>
+                    setGroupForm((previous) => ({ ...previous, onlyAdminsCanMessage: event.target.checked }))
+                  }
+                />
+                <span>Only admins can send messages</span>
+              </label>
+
+              <label className="permission-toggle">
+                <input
+                  type="checkbox"
+                  checked={groupForm.onlyAdminsCanEdit}
+                  onChange={(event) =>
+                    setGroupForm((previous) => ({ ...previous, onlyAdminsCanEdit: event.target.checked }))
+                  }
+                />
+                <span>Only admins can edit group settings</span>
+              </label>
+
+              <div className="group-form-actions">
+                <button type="button" className="secondary-btn" onClick={() => setIsGroupSettingsOpen(false)}>
+                  Close
+                </button>
+                <button type="submit">Save changes</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -23,6 +23,7 @@ class ChatServer implements MessageComponentInterface
     {
         $this->clients = new SplObjectStorage();
         $this->pdo = $this->buildConnection();
+        $this->ensureSocketQueueTable();
     }
 
     public function onOpen(ConnectionInterface $conn): void
@@ -73,6 +74,11 @@ class ChatServer implements MessageComponentInterface
 
         if ($type === 'relay_message') {
             $this->handleRelayMessage($from, $senderId, $payload);
+            return;
+        }
+
+        if ($type === 'group_message') {
+            $this->handleGroupMessage($from, $senderId, $payload);
             return;
         }
 
@@ -137,6 +143,8 @@ class ChatServer implements MessageComponentInterface
             'userId' => $userId,
             'message' => 'Authenticated',
         ]);
+
+        $this->deliverQueuedPackets($conn, $userId);
 
         $this->broadcastUsersRefresh();
     }
@@ -253,6 +261,79 @@ class ChatServer implements MessageComponentInterface
                 'type' => 'new_message',
                 'data' => $packet,
             ]);
+            return;
+        }
+
+        $this->queuePacket($receiverId, [
+            'type' => 'new_message',
+            'data' => $packet,
+        ]);
+    }
+
+    private function handleGroupMessage(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $groupId = isset($payload['groupId']) ? trim((string) $payload['groupId']) : '';
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : (int) (microtime(true) * 1000);
+        $messageType = isset($payload['messageType']) ? (string) $payload['messageType'] : 'text';
+        $message = isset($payload['message']) ? trim((string) $payload['message']) : '';
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+        $group = isset($payload['group']) && is_array($payload['group']) ? $payload['group'] : [];
+
+        $memberIdsRaw = [];
+        if (isset($group['memberIds']) && is_array($group['memberIds'])) {
+            $memberIdsRaw = $group['memberIds'];
+        } elseif (isset($payload['memberIds']) && is_array($payload['memberIds'])) {
+            $memberIdsRaw = $payload['memberIds'];
+        }
+
+        $memberIds = [];
+        foreach ($memberIdsRaw as $memberId) {
+            $value = (int) $memberId;
+            if ($value > 0) {
+                $memberIds[$value] = $value;
+            }
+        }
+
+        if ($groupId === '' || $message === '' || count($memberIds) === 0) {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'group_message requires groupId, message, and memberIds',
+            ]);
+            return;
+        }
+
+        $memberIds[$senderId] = $senderId;
+
+        $packet = [
+            'id' => $messageId,
+            'groupId' => $groupId,
+            'senderId' => $senderId,
+            'message' => $message,
+            'messageType' => $messageType,
+            'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+            'group' => [
+                'id' => $groupId,
+                'name' => isset($group['name']) ? (string) $group['name'] : 'Group',
+                'description' => isset($group['description']) ? (string) $group['description'] : '',
+                'image' => isset($group['image']) ? (string) $group['image'] : '',
+                'memberIds' => array_values($memberIds),
+                'adminIds' => isset($group['adminIds']) && is_array($group['adminIds']) ? $group['adminIds'] : [$senderId],
+                'permissions' => isset($group['permissions']) && is_array($group['permissions'])
+                    ? $group['permissions']
+                    : ['onlyAdminsCanMessage' => false, 'onlyAdminsCanEdit' => true],
+                'createdBy' => isset($group['createdBy']) ? (int) $group['createdBy'] : $senderId,
+            ],
+        ];
+
+        foreach ($memberIds as $memberId) {
+            if (!isset($this->userConnections[$memberId])) {
+                continue;
+            }
+
+            $this->sendJson($this->userConnections[$memberId], [
+                'type' => 'group_message',
+                'data' => $packet,
+            ]);
         }
     }
 
@@ -326,5 +407,75 @@ class ChatServer implements MessageComponentInterface
         }
 
         return $date->setTimezone(new \DateTimeZone('Asia/Colombo'))->format(\DateTimeInterface::ATOM);
+    }
+
+    private function ensureSocketQueueTable(): void
+    {
+        $this->pdo->exec(
+            'CREATE TABLE IF NOT EXISTS socket_message_queue (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                receiver_id INT NOT NULL,
+                payload_json LONGTEXT NOT NULL,
+                delivered TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                delivered_at TIMESTAMP NULL DEFAULT NULL,
+                INDEX idx_receiver_delivered (receiver_id, delivered)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+        );
+    }
+
+    private function queuePacket(int $receiverId, array $payload): void
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO socket_message_queue (receiver_id, payload_json, delivered) VALUES (:receiver_id, :payload_json, 0)'
+        );
+
+        $insert->execute([
+            ':receiver_id' => $receiverId,
+            ':payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+    }
+
+    private function deliverQueuedPackets(ConnectionInterface $conn, int $userId): void
+    {
+        $select = $this->pdo->prepare(
+            'SELECT id, payload_json FROM socket_message_queue WHERE receiver_id = :receiver_id AND delivered = 0 ORDER BY id ASC LIMIT 500'
+        );
+        $select->execute([':receiver_id' => $userId]);
+        $rows = $select->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!is_array($rows) || count($rows) === 0) {
+            return;
+        }
+
+        $deliveredIds = [];
+
+        foreach ($rows as $row) {
+            $queueId = isset($row['id']) ? (int) $row['id'] : 0;
+            $payloadRaw = isset($row['payload_json']) ? (string) $row['payload_json'] : '';
+
+            if ($queueId <= 0 || $payloadRaw === '') {
+                continue;
+            }
+
+            $payload = json_decode($payloadRaw, true);
+            if (!is_array($payload)) {
+                $deliveredIds[] = $queueId;
+                continue;
+            }
+
+            $this->sendJson($conn, $payload);
+            $deliveredIds[] = $queueId;
+        }
+
+        if (count($deliveredIds) === 0) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($deliveredIds), '?'));
+        $update = $this->pdo->prepare(
+            "UPDATE socket_message_queue SET delivered = 1, delivered_at = CURRENT_TIMESTAMP WHERE id IN ({$placeholders})"
+        );
+        $update->execute($deliveredIds);
     }
 }
