@@ -71,6 +71,11 @@ class ChatServer implements MessageComponentInterface
             return;
         }
 
+        if ($type === 'relay_message') {
+            $this->handleRelayMessage($from, $senderId, $payload);
+            return;
+        }
+
         $this->sendJson($from, [
             'type' => 'error',
             'message' => 'Unsupported message type',
@@ -200,6 +205,53 @@ class ChatServer implements MessageComponentInterface
                 'type' => 'error',
                 'message' => 'Could not save/send message',
                 'details' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function handleRelayMessage(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $receiverId = isset($payload['receiverId']) ? (int) $payload['receiverId'] : 0;
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : 0;
+        $messageType = isset($payload['messageType']) ? (string) $payload['messageType'] : 'text';
+        $message = isset($payload['message']) ? (string) $payload['message'] : '';
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+
+        if ($receiverId <= 0 || $messageId <= 0 || $message === '') {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'relay_message requires id, receiverId, and message',
+            ]);
+            return;
+        }
+
+        if (!$this->userExists($receiverId)) {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'Receiver does not exist',
+            ]);
+            return;
+        }
+
+        $packet = [
+            'type' => 'private_message',
+            'id' => $messageId,
+            'senderId' => $senderId,
+            'receiverId' => $receiverId,
+            'message' => $message,
+            'messageType' => $messageType,
+            'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+        ];
+
+        $this->sendJson($from, [
+            'type' => 'message_sent',
+            'data' => $packet,
+        ]);
+
+        if (isset($this->userConnections[$receiverId])) {
+            $this->sendJson($this->userConnections[$receiverId], [
+                'type' => 'new_message',
+                'data' => $packet,
             ]);
         }
     }

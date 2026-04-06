@@ -4,7 +4,7 @@ import RegisterPage from './components/RegisterPage';
 import Notification from './components/notification';
 import Profile from './components/profile';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPaperPlane } from '@fortawesome/free-solid-svg-icons';
+import { faPaperPlane, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
 
@@ -44,11 +44,16 @@ function App() {
   const [theme, setTheme] = useState(getInitialTheme);
   const [notifications, setNotifications] = useState([]);
   const [isAtMessageBottom, setIsAtMessageBottom] = useState(true);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [selectedAttachment, setSelectedAttachment] = useState(null);
 
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const activeUserIdRef = useRef(null);
   const messagesAreaRef = useRef(null);
+  const attachmentMenuRef = useRef(null);
+  const imageAttachmentInputRef = useRef(null);
+  const fileAttachmentInputRef = useRef(null);
   const sidebarHideTimerRef = useRef(null);
   const messagesHideTimerRef = useRef(null);
   const [isSidebarScrollbarVisible, setIsSidebarScrollbarVisible] = useState(true);
@@ -296,6 +301,24 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!attachmentMenuRef.current) {
+        return;
+      }
+
+      if (!attachmentMenuRef.current.contains(event.target)) {
+        setIsAttachmentMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, []);
+
+  useEffect(() => {
     if (authError) {
       pushNotification(authError, 'error');
     }
@@ -386,6 +409,7 @@ function App() {
             sender_id: Number(packet.senderId),
             receiver_id: Number(packet.receiverId),
             message: String(packet.message || ''),
+            message_type: String(packet.messageType || 'text'),
             created_at: packet.createdAt || new Date().toISOString(),
           };
 
@@ -454,11 +478,84 @@ function App() {
 
   const sendMessage = async (event) => {
     event.preventDefault();
-    if (!currentUser || !activeUser || !draft.trim()) {
+    const trimmedDraft = draft.trim();
+
+    if (!currentUser || !activeUser || (!trimmedDraft && !selectedAttachment)) {
       return;
     }
 
-    const text = draft.trim();
+    if (selectedAttachment) {
+      try {
+        const payload = new FormData();
+        payload.append('sender_id', String(currentUser.id));
+        payload.append('receiver_id', String(activeUser.id));
+        payload.append('message', trimmedDraft);
+        payload.append('attachment_type', selectedAttachment.category);
+        payload.append('attachment', selectedAttachment.file);
+
+        const response = await fetch(`${apiBase}/messages.php`, {
+          method: 'POST',
+          body: payload,
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'Failed to send attachment');
+        }
+
+        const savedMessage = result.data
+          ? {
+              ...result.data,
+              id: Number(result.data.id),
+              sender_id: Number(result.data.sender_id),
+              receiver_id: Number(result.data.receiver_id),
+              message: String(result.data.message || ''),
+              message_type: String(result.data.message_type || 'file'),
+              created_at: result.data.created_at || new Date().toISOString(),
+            }
+          : null;
+
+        if (savedMessage) {
+          setMessages((previous) => {
+            const exists = previous.some((item) => item.id === savedMessage.id);
+            if (exists) {
+              return previous;
+            }
+
+            return [...previous, savedMessage];
+          });
+
+          const socket = socketRef.current;
+          const canRelayWithSocket = socket && socket.readyState === WebSocket.OPEN;
+          if (canRelayWithSocket) {
+            socket.send(
+              JSON.stringify({
+                type: 'relay_message',
+                id: savedMessage.id,
+                receiverId: savedMessage.receiver_id,
+                message: savedMessage.message,
+                messageType: savedMessage.message_type,
+                createdAt: savedMessage.created_at,
+              })
+            );
+          }
+        }
+
+        setDraft('');
+        setSelectedAttachment(null);
+        setIsAttachmentMenuOpen(false);
+
+        if (!savedMessage) {
+          fetchMessages(currentUser.id, activeUser.id);
+        }
+      } catch (err) {
+        setChatError(err.message || 'Failed to send attachment');
+      }
+
+      return;
+    }
+
+    const text = trimmedDraft;
     const socket = socketRef.current;
     const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
 
@@ -583,8 +680,77 @@ function App() {
     setUsers([]);
     setMessages([]);
     setDraft('');
+    setSelectedAttachment(null);
+    setIsAttachmentMenuOpen(false);
     setActiveUserId(null);
     setChatError('');
+  };
+
+  const getAttachmentPreview = (message) => {
+    const type = String(message?.message_type || 'text');
+    if (type !== 'image' && type !== 'file') {
+      return null;
+    }
+
+    const raw = String(message?.message || '').trim();
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        return null;
+      }
+
+      return {
+        type,
+        url: typeof parsed.url === 'string' ? parsed.url : '',
+        name: typeof parsed.name === 'string' ? parsed.name : 'Attachment',
+        caption: typeof parsed.caption === 'string' ? parsed.caption : '',
+      };
+    } catch {
+      return {
+        type,
+        url: raw,
+        name: raw.split('/').pop() || 'Attachment',
+        caption: '',
+      };
+    }
+  };
+
+  const openAttachmentPicker = (category) => {
+    setIsAttachmentMenuOpen(false);
+
+    if (category === 'image' && imageAttachmentInputRef.current) {
+      imageAttachmentInputRef.current.click();
+      return;
+    }
+
+    if (category === 'file' && fileAttachmentInputRef.current) {
+      fileAttachmentInputRef.current.click();
+    }
+  };
+
+  const handleAttachmentSelected = (event, category) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    const maxBytes = 12 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setChatError('File size must be 12MB or less');
+      event.target.value = '';
+      return;
+    }
+
+    setSelectedAttachment({
+      category,
+      file,
+    });
+
+    event.target.value = '';
   };
 
   const formatTime = (dateString) => {
@@ -883,10 +1049,38 @@ function App() {
 
             {messages.map((message) => {
               const isOwn = currentUser && message.sender_id === currentUser.id;
+              const attachment = getAttachmentPreview(message);
+
               return (
                 <article key={message.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
                   <div className="bubble">
-                    <p>{message.message}</p>
+                    {attachment && attachment.type === 'image' && attachment.url ? (
+                      <a
+                        className="attachment-link image"
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                      </a>
+                    ) : null}
+
+                    {attachment && attachment.type === 'file' && attachment.url ? (
+                      <a
+                        className="attachment-link file"
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {attachment.name}
+                      </a>
+                    ) : null}
+
+                    {attachment ? (
+                      attachment.caption ? <p>{attachment.caption}</p> : null
+                    ) : (
+                      <p>{message.message}</p>
+                    )}
                     <span>{formatTime(message.created_at)}</span>
                   </div>
                 </article>
@@ -895,6 +1089,44 @@ function App() {
           </div>
 
           <form className="composer" onSubmit={sendMessage}>
+            <div className="attachment-menu-wrap" ref={attachmentMenuRef}>
+              <button
+                type="button"
+                className="attachment-toggle"
+                onClick={() => setIsAttachmentMenuOpen((previous) => !previous)}
+                disabled={!activeUser}
+                aria-label="Add attachment"
+                aria-expanded={isAttachmentMenuOpen}
+              >
+                <FontAwesomeIcon icon={faPlus} />
+              </button>
+
+              {isAttachmentMenuOpen ? (
+                <div className="attachment-menu" role="menu" aria-label="Attachment options">
+                  <button type="button" onClick={() => openAttachmentPicker('image')}>
+                    Photos & videos
+                  </button>
+                  <button type="button" onClick={() => openAttachmentPicker('file')}>
+                    Document
+                  </button>
+                </div>
+              ) : null}
+
+              <input
+                ref={imageAttachmentInputRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={(event) => handleAttachmentSelected(event, 'image')}
+                hidden
+              />
+              <input
+                ref={fileAttachmentInputRef}
+                type="file"
+                onChange={(event) => handleAttachmentSelected(event, 'file')}
+                hidden
+              />
+            </div>
+
             <input
               type="text"
               value={draft}
@@ -902,7 +1134,20 @@ function App() {
               placeholder={activeUser ? `Message ${activeUser.username}...` : 'Select a user first'}
               disabled={!activeUser}
             />
-            <button type="submit" disabled={!activeUser || !draft.trim()}>
+            {selectedAttachment ? (
+              <div className="attachment-chip" title={selectedAttachment.file.name}>
+                <span>{selectedAttachment.file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAttachment(null)}
+                  aria-label="Remove attachment"
+                >
+                  <FontAwesomeIcon icon={faXmark} />
+                </button>
+              </div>
+            ) : null}
+
+            <button type="submit" disabled={!activeUser || (!draft.trim() && !selectedAttachment)}>
               <FontAwesomeIcon icon={faPaperPlane} />
             </button>
           </form>

@@ -688,6 +688,37 @@
   overflow-wrap: anywhere;
 }
 
+.attachment-link {
+  display: block;
+  border-radius: 12px;
+  text-decoration: none;
+}
+
+.attachment-link.image {
+  margin-bottom: 0.4rem;
+  overflow: hidden;
+  border: 1px solid rgba(197, 225, 240, 0.8);
+  max-width: 280px;
+}
+
+.attachment-link.image img {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  display: block;
+}
+
+.attachment-link.file {
+  margin-bottom: 0.35rem;
+  background: rgba(12, 128, 152, 0.1);
+  border: 1px solid rgba(12, 128, 152, 0.25);
+  color: #105a74;
+  padding: 0.5rem 0.62rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .bubble span {
   display: block;
   margin-top: 0.3rem;
@@ -697,13 +728,87 @@
 
 .composer {
   padding: 1rem 1.2rem 1.1rem;
-  border-top: 1px solid #deecf5;
+  position: relative;
   display: flex;
+  align-items: center;
   gap: 0.7rem;
+}
+
+.composer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1.2rem;
+  right: 1.2rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #d8e8f2 12%, #d8e8f2 88%, transparent 100%);
+}
+
+.attachment-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.attachment-toggle {
+  border: 1px solid #cbe0ee;
+  background: #f9fdff;
+  color: #1d6a8f;
+  border-radius: 12px;
+  width: 45px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.attachment-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(16, 70, 96, 0.15);
+}
+
+.attachment-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.attachment-menu {
+  position: absolute;
+  bottom: calc(100% + 0.55rem);
+  left: 0;
+  width: max-content;
+  min-width: 176px;
+  max-width: min(240px, calc(100vw - 2rem));
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #d9eaf4;
+  box-shadow: 0 12px 28px rgba(11, 50, 70, 0.18);
+  padding: 0.4rem;
+  display: grid;
+  gap: 0.25rem;
+  z-index: 6;
+}
+
+.attachment-menu button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  color: #1e526d;
+  font-weight: 600;
+  font-family: 'Manrope', sans-serif;
+  padding: 0.62rem 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.attachment-menu button:hover {
+  background: #ebf7ff;
 }
 
 .composer input {
   flex: 1;
+  min-width: 0;
   border: 1px solid #cbe0ee;
   border-radius: 12px;
   padding: 0.74rem 0.85rem;
@@ -719,25 +824,62 @@
   box-shadow: 0 0 0 3px rgba(15, 154, 161, 0.14);
 }
 
-.composer button {
+.composer > button[type='submit'] {
   border: 0;
   border-radius: 12px;
   background: linear-gradient(145deg, #f6af4c, #ff924f);
   color: #192129;
-  padding: 0 1.05rem;
+  width: 46px;
+  height: 42px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
   cursor: pointer;
   transition: transform 150ms ease, opacity 150ms ease;
 }
 
-.composer button:hover:not(:disabled) {
+.composer > button[type='submit']:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.composer button:disabled {
+.composer > button[type='submit']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.attachment-chip {
+  max-width: 220px;
+  border-radius: 999px;
+  border: 1px solid #c5deea;
+  background: #f2f9ff;
+  color: #1b5572;
+  padding: 0.32rem 0.38rem 0.32rem 0.62rem;
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-shrink: 0;
+}
+
+.attachment-chip span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip button {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: #d7ecfa;
+  color: #1f5a76;
 }
 
 .helper-text {
@@ -917,6 +1059,10 @@
   border-color: #23384a;
 }
 
+.chat-shell.theme-dark .composer::before {
+  background: linear-gradient(90deg, transparent 0%, #2a4153 12%, #2a4153 88%, transparent 100%);
+}
+
 .chat-shell.theme-dark .message-row.other .bubble {
   background: #172d3d;
   color: #e4f2fb;
@@ -969,5 +1115,18 @@
 
   .chat-main {
     min-height: 55vh;
+  }
+
+  .composer {
+    flex-wrap: nowrap;
+  }
+
+  .attachment-chip {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .composer > button[type='submit'] {
+    flex-shrink: 0;
   }
 }
