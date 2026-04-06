@@ -3,12 +3,26 @@ import './App.css';
 import RegisterPage from './components/RegisterPage';
 import Notification from './components/notification';
 import Profile from './components/profile';
+import TaskTracker from './components/TaskTracker';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPaperPlane, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
+import {
+  faPaperPlane,
+  faPlus,
+  faXmark,
+  faLock,
+  faStar,
+  faRightFromBracket,
+  faUserGroup,
+  faListCheck,
+  faEllipsisVertical,
+} from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
 const GROUPS_STORAGE_PREFIX = 'chat_app_groups';
 const GROUP_MESSAGES_STORAGE_PREFIX = 'chat_app_group_messages';
+const TASKS_STORAGE_PREFIX = 'chat_app_tasks';
+const STARRED_MESSAGES_STORAGE_PREFIX = 'chat_app_starred_messages';
+const APP_LOCK_DEFAULT_PIN = '1234';
 
 const getInitialTheme = () => {
   if (typeof window === 'undefined') {
@@ -41,6 +55,8 @@ function App() {
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [groupMessagesById, setGroupMessagesById] = useState({});
+  const [tasks, setTasks] = useState([]);
+  const [starredMessageKeys, setStarredMessageKeys] = useState({});
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false);
   const [groupForm, setGroupForm] = useState({
@@ -63,12 +79,17 @@ function App() {
   const [isAtMessageBottom, setIsAtMessageBottom] = useState(true);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState(null);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const [isAppLocked, setIsAppLocked] = useState(false);
+  const [lockPinInput, setLockPinInput] = useState('');
+  const [lockError, setLockError] = useState('');
 
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const activeUserIdRef = useRef(null);
   const messagesAreaRef = useRef(null);
   const attachmentMenuRef = useRef(null);
+  const quickActionsMenuRef = useRef(null);
   const imageAttachmentInputRef = useRef(null);
   const fileAttachmentInputRef = useRef(null);
   const sidebarHideTimerRef = useRef(null);
@@ -79,7 +100,11 @@ function App() {
   const activeUser = users.find((user) => user.id === activeUserId) || null;
   const activeGroup = groups.find((group) => group.id === activeGroupId) || null;
   const isGroupChatActive = activeChatMode === 'group' && Boolean(activeGroup);
-  const visibleMessages = isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
+  const isTaskTrackingActive = activeChatMode === 'task';
+  const isStarredViewActive = activeChatMode === 'starred';
+  const visibleMessages = useMemo(() => {
+    return isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
+  }, [isGroupChatActive, groupMessagesById, activeGroup, messages]);
 
   const renderAvatar = (user, className = 'avatar') => {
     const username = user && user.username ? String(user.username) : '?';
@@ -117,6 +142,14 @@ function App() {
     return `${GROUP_MESSAGES_STORAGE_PREFIX}_${userId}`;
   }, []);
 
+  const getTasksStorageKey = useCallback((userId) => {
+    return `${TASKS_STORAGE_PREFIX}_${userId}`;
+  }, []);
+
+  const getStarredMessagesStorageKey = useCallback((userId) => {
+    return `${STARRED_MESSAGES_STORAGE_PREFIX}_${userId}`;
+  }, []);
+
   const isGroupAdmin = useCallback(
     (group) => {
       if (!group || !currentUser) {
@@ -141,6 +174,8 @@ function App() {
     if (!currentUser || typeof window === 'undefined') {
       setGroups([]);
       setGroupMessagesById({});
+      setTasks([]);
+      setStarredMessageKeys({});
       setActiveGroupId(null);
       return;
     }
@@ -148,12 +183,18 @@ function App() {
     try {
       const storedGroupsRaw = window.localStorage.getItem(getGroupsStorageKey(currentUser.id));
       const storedMessagesRaw = window.localStorage.getItem(getGroupMessagesStorageKey(currentUser.id));
+      const storedTasksRaw = window.localStorage.getItem(getTasksStorageKey(currentUser.id));
+      const storedStarredRaw = window.localStorage.getItem(getStarredMessagesStorageKey(currentUser.id));
 
       const parsedGroups = storedGroupsRaw ? JSON.parse(storedGroupsRaw) : [];
       const parsedMessages = storedMessagesRaw ? JSON.parse(storedMessagesRaw) : {};
+      const parsedTasks = storedTasksRaw ? JSON.parse(storedTasksRaw) : [];
+      const parsedStarred = storedStarredRaw ? JSON.parse(storedStarredRaw) : {};
 
       setGroups(Array.isArray(parsedGroups) ? parsedGroups : []);
       setGroupMessagesById(parsedMessages && typeof parsedMessages === 'object' ? parsedMessages : {});
+      setTasks(Array.isArray(parsedTasks) ? parsedTasks : []);
+      setStarredMessageKeys(parsedStarred && typeof parsedStarred === 'object' ? parsedStarred : {});
       setActiveGroupId((previousId) => {
         if (previousId && Array.isArray(parsedGroups) && parsedGroups.some((group) => group.id === previousId)) {
           return previousId;
@@ -168,9 +209,17 @@ function App() {
     } catch {
       setGroups([]);
       setGroupMessagesById({});
+      setTasks([]);
+      setStarredMessageKeys({});
       setActiveGroupId(null);
     }
-  }, [currentUser, getGroupsStorageKey, getGroupMessagesStorageKey]);
+  }, [
+    currentUser,
+    getGroupsStorageKey,
+    getGroupMessagesStorageKey,
+    getTasksStorageKey,
+    getStarredMessagesStorageKey,
+  ]);
 
   useEffect(() => {
     if (!currentUser || typeof window === 'undefined') {
@@ -190,6 +239,25 @@ function App() {
       JSON.stringify(groupMessagesById)
     );
   }, [groupMessagesById, currentUser, getGroupMessagesStorageKey]);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(getTasksStorageKey(currentUser.id), JSON.stringify(tasks));
+  }, [tasks, currentUser, getTasksStorageKey]);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      getStarredMessagesStorageKey(currentUser.id),
+      JSON.stringify(starredMessageKeys)
+    );
+  }, [starredMessageKeys, currentUser, getStarredMessagesStorageKey]);
 
   const fetchUsers = useCallback(async ({ silent = false } = {}) => {
     if (!currentUser) {
@@ -420,12 +488,12 @@ function App() {
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
-      if (!attachmentMenuRef.current) {
-        return;
+      if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(event.target)) {
+        setIsAttachmentMenuOpen(false);
       }
 
-      if (!attachmentMenuRef.current.contains(event.target)) {
-        setIsAttachmentMenuOpen(false);
+      if (quickActionsMenuRef.current && !quickActionsMenuRef.current.contains(event.target)) {
+        setIsQuickActionsOpen(false);
       }
     };
 
@@ -1068,6 +1136,8 @@ function App() {
     setMessages([]);
     setGroups([]);
     setGroupMessagesById({});
+    setTasks([]);
+    setStarredMessageKeys({});
     setActiveGroupId(null);
     setActiveChatMode('direct');
     setDraft('');
@@ -1077,6 +1147,9 @@ function App() {
     setIsGroupSettingsOpen(false);
     setActiveUserId(null);
     setChatError('');
+    setIsAppLocked(false);
+    setLockPinInput('');
+    setLockError('');
   };
 
   const getAttachmentPreview = (message) => {
@@ -1479,6 +1552,118 @@ function App() {
     );
   };
 
+  const addTaskItem = (taskPayload) => {
+    setTasks((previous) => [
+      {
+        id: `task-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        title: taskPayload.title,
+        assigneeId: Number(taskPayload.assigneeId || currentUser?.id || 0),
+        assigneeName: taskPayload.assigneeName || currentUser?.username || 'Unknown',
+        priority: taskPayload.priority || 'Medium',
+        dueDate: taskPayload.dueDate || '',
+        completed: false,
+      },
+      ...previous,
+    ]);
+  };
+
+  const toggleTaskItem = (taskId) => {
+    setTasks((previous) =>
+      previous.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              completed: !task.completed,
+            }
+          : task
+      )
+    );
+  };
+
+  const deleteTaskItem = (taskId) => {
+    setTasks((previous) => previous.filter((task) => task.id !== taskId));
+  };
+
+  const buildMessageStarKey = useCallback((message, { groupId = null, peerId = null } = {}) => {
+    const messageId = Number(message?.id || 0);
+    const senderId = Number(message?.sender_id || 0);
+    const createdAt = String(message?.created_at || '');
+    const scope = groupId ? `group:${String(groupId)}` : `direct:${String(peerId || 'unknown')}`;
+    return `${scope}:${messageId}:${senderId}:${createdAt}`;
+  }, []);
+
+  const toggleMessageStar = useCallback(
+    (message, options = {}) => {
+      const key = buildMessageStarKey(message, options);
+      setStarredMessageKeys((previous) => {
+        if (previous[key]) {
+          const { [key]: _, ...rest } = previous;
+          return rest;
+        }
+
+        return {
+          ...previous,
+          [key]: true,
+        };
+      });
+    },
+    [buildMessageStarKey]
+  );
+
+  const starredMessages = useMemo(() => {
+    const directContextLabel = activeUser ? `Direct • ${activeUser.username}` : 'Direct chat';
+    const directPeerId = activeUser ? activeUser.id : null;
+    const directItems = (messages || []).map((message) => {
+      const starKey = buildMessageStarKey(message, { peerId: directPeerId });
+      return {
+        starKey,
+        message,
+        contextLabel: directContextLabel,
+      };
+    });
+
+    const groupItems = Object.entries(groupMessagesById || {}).flatMap(([groupId, groupList]) => {
+      const group = groups.find((item) => String(item.id) === String(groupId));
+      const label = group ? `Group • ${group.name}` : 'Group';
+
+      return (groupList || []).map((message) => {
+        const starKey = buildMessageStarKey(message, { groupId });
+        return {
+          starKey,
+          message,
+          contextLabel: label,
+        };
+      });
+    });
+
+    return [...directItems, ...groupItems]
+      .filter((item) => Boolean(starredMessageKeys[item.starKey]))
+      .sort((left, right) => {
+        const leftTime = new Date(left.message.created_at || 0).getTime();
+        const rightTime = new Date(right.message.created_at || 0).getTime();
+        return rightTime - leftTime;
+      });
+  }, [messages, groupMessagesById, groups, activeUser, buildMessageStarKey, starredMessageKeys]);
+
+  const lockApp = () => {
+    setIsAppLocked(true);
+    setLockPinInput('');
+    setLockError('');
+  };
+
+  const unlockApp = (event) => {
+    event.preventDefault();
+
+    if (lockPinInput.trim() !== APP_LOCK_DEFAULT_PIN) {
+      setLockError('Invalid PIN. Try 1234');
+      return;
+    }
+
+    setIsAppLocked(false);
+    setLockPinInput('');
+    setLockError('');
+  };
+
   if (!currentUser) {
     return (
       <div className={`chat-shell auth-shell theme-${theme}`}>
@@ -1575,6 +1760,78 @@ function App() {
                 <h2>{currentUser ? currentUser.username : 'Loading...'}</h2>
                 <p>{currentUser ? currentUser.email : 'Fetching profile'}</p>
               </div>
+              <div className="profile-actions-wrap" ref={quickActionsMenuRef}>
+                <button
+                  type="button"
+                  className="profile-actions-toggle"
+                  aria-label="Open quick actions"
+                  aria-expanded={isQuickActionsOpen}
+                  onClick={() => setIsQuickActionsOpen((previous) => !previous)}
+                >
+                  <FontAwesomeIcon icon={faEllipsisVertical} />
+                </button>
+
+                {isQuickActionsOpen ? (
+                  <div className="profile-actions-menu" role="menu" aria-label="Quick actions">
+                    <button
+                      type="button"
+                      className={isTaskTrackingActive ? 'active' : ''}
+                      onClick={() => {
+                        setActiveChatMode('task');
+                        setSelectedAttachment(null);
+                        setIsAttachmentMenuOpen(false);
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faListCheck} />
+                      <span>Tasks</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openCreateGroupModal();
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faUserGroup} />
+                      <span>New Group</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={isStarredViewActive ? 'active' : ''}
+                      onClick={() => {
+                        setActiveChatMode('starred');
+                        setSelectedAttachment(null);
+                        setIsAttachmentMenuOpen(false);
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faStar} />
+                      <span>Starred</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        lockApp();
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faLock} />
+                      <span>App Lock</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faRightFromBracket} />
+                      <span>Logout</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
             <p className="profile-bio">
               {currentUser && currentUser.bio
@@ -1587,15 +1844,9 @@ function App() {
           <div className="contacts-wrap">
             <div className="contacts-header">
               <h3>Contacts</h3>
-              <div className="contacts-header-actions">
-                <button type="button" className="new-group-btn" onClick={openCreateGroupModal}>
-                  New Group
-                </button>
-                <span>{users.length + groups.length}</span>
-              </div>
+              <span>{users.length + groups.length}</span>
             </div>
 
-            {loadingUsers ? <p className="helper-text">Loading users...</p> : null}
             {!loadingUsers && users.length === 0 ? (
               <p className="helper-text">Add more users in your database to start chatting.</p>
             ) : null}
@@ -1661,15 +1912,31 @@ function App() {
         <section className="chat-main">
           <header className="chat-topbar">
             <div>
-              <p className="label">{isGroupChatActive ? 'Group' : 'Conversation'}</p>
+              <p className="label">
+                {isTaskTrackingActive
+                  ? 'Workspace'
+                  : isStarredViewActive
+                  ? 'Saved'
+                  : isGroupChatActive
+                  ? 'Group'
+                  : 'Conversation'}
+              </p>
               <h2>
-                {isGroupChatActive
+                {isTaskTrackingActive
+                  ? 'Project Task Tracker'
+                  : isStarredViewActive
+                  ? 'Starred Messages'
+                  : isGroupChatActive
                   ? activeGroup?.name || 'Group'
                   : activeUser
                   ? activeUser.username
                   : 'Pick a contact'}
               </h2>
-              {isGroupChatActive ? (
+              {isTaskTrackingActive ? (
+                <p className="active-user-presence">Track work items, owners, and completion state.</p>
+              ) : isStarredViewActive ? (
+                <p className="active-user-presence">Your important messages are pinned here.</p>
+              ) : isGroupChatActive ? (
                 <p className="active-user-presence">
                   {(activeGroup?.memberIds || []).length} members
                   {activeGroup?.description ? ` • ${activeGroup.description}` : ''}
@@ -1692,87 +1959,152 @@ function App() {
               <button type="button" className="theme-btn" onClick={toggleTheme}>
                 {theme === 'light' ? 'Dark mode' : 'Light mode'}
               </button>
-              <button type="button" className="logout-btn" onClick={logout}>
-                Logout
-              </button>
             </div>
           </header>
 
-          <div
-            className={`messages-area ${isMessagesScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
-            ref={messagesAreaRef}
-            onScroll={handleMessagesScroll}
-          >
-            {chatError ? <p className="error-banner">{chatError}</p> : null}
+          {isTaskTrackingActive ? (
+            <TaskTracker
+              tasks={tasks}
+              users={users}
+              currentUser={currentUser}
+              onAddTask={addTaskItem}
+              onToggleTask={toggleTaskItem}
+              onDeleteTask={deleteTaskItem}
+            />
+          ) : isStarredViewActive ? (
+            <div
+              className={`messages-area ${isMessagesScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
+              ref={messagesAreaRef}
+              onScroll={handleMessagesScroll}
+            >
+              {starredMessages.length === 0 ? (
+                <p className="helper-text">No starred messages yet. Click the star icon on a message to save it.</p>
+              ) : null}
 
-            {!activeUser && !isGroupChatActive ? (
-              <p className="helper-text">Select a contact to begin messaging.</p>
-            ) : null}
+              {starredMessages.map((item) => {
+                const message = item.message;
+                const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
+                const attachment = getAttachmentPreview(message);
 
-            {loadingMessages && !isGroupChatActive && activeUser ? (
-              <p className="helper-text">Syncing messages...</p>
-            ) : null}
+                return (
+                  <article key={item.starKey} className={`message-row ${isOwn ? 'own' : 'other'}`}>
+                    <div className="bubble">
+                      <p className="group-sender-name">{item.contextLabel}</p>
+                      {attachment && attachment.type === 'image' && attachment.url ? (
+                        <a className="attachment-link image" href={attachment.url} target="_blank" rel="noreferrer">
+                          <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                        </a>
+                      ) : null}
+                      {attachment && attachment.type === 'file' && attachment.url ? (
+                        <a className="attachment-link file" href={attachment.url} target="_blank" rel="noreferrer">
+                          {attachment.name}
+                        </a>
+                      ) : null}
+                      {attachment ? attachment.caption ? <p>{attachment.caption}</p> : null : <p>{message.message}</p>}
+                      <span>{formatTime(message.created_at)}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <div
+                className={`messages-area ${isMessagesScrollbarVisible ? 'show-scrollbar' : 'hide-scrollbar'}`}
+                ref={messagesAreaRef}
+                onScroll={handleMessagesScroll}
+              >
+                {chatError ? <p className="error-banner">{chatError}</p> : null}
 
-            {isGroupChatActive && visibleMessages.length === 0 ? (
-              <p className="helper-text">No group messages yet. Start the conversation.</p>
-            ) : null}
+                {!activeUser && !isGroupChatActive ? (
+                  <p className="helper-text">Select a contact to begin messaging.</p>
+                ) : null}
 
-            {activeUser && !isGroupChatActive && !loadingMessages && visibleMessages.length === 0 ? (
-              <p className="helper-text">No messages yet. Start the conversation.</p>
-            ) : null}
+                {loadingMessages && !isGroupChatActive && activeUser ? (
+                  <p className="helper-text">Syncing messages...</p>
+                ) : null}
 
-            {visibleMessages.map((message) => {
-              const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
-              const attachment = getAttachmentPreview(message);
+                {isGroupChatActive && visibleMessages.length === 0 ? (
+                  <p className="helper-text">No group messages yet. Start the conversation.</p>
+                ) : null}
 
-              return (
-                <article key={message.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
-                  <div className="bubble">
-                    {isGroupChatActive && !isOwn ? (
-                      <p className="group-sender-name">{getUserNameById(message.sender_id)}</p>
-                    ) : null}
+                {activeUser && !isGroupChatActive && !loadingMessages && visibleMessages.length === 0 ? (
+                  <p className="helper-text">No messages yet. Start the conversation.</p>
+                ) : null}
 
-                    {attachment && attachment.type === 'image' && attachment.url ? (
-                      <a
-                        className="attachment-link image"
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <img src={attachment.url} alt={attachment.name} loading="lazy" />
-                      </a>
-                    ) : null}
+                {visibleMessages.map((message) => {
+                  const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
+                  const attachment = getAttachmentPreview(message);
+                  const starKey = buildMessageStarKey(message, {
+                    groupId: isGroupChatActive ? activeGroup?.id : null,
+                    peerId: !isGroupChatActive ? activeUser?.id : null,
+                  });
+                  const isStarred = Boolean(starredMessageKeys[starKey]);
 
-                    {attachment && attachment.type === 'file' && attachment.url ? (
-                      <a
-                        className="attachment-link file"
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {attachment.name}
-                      </a>
-                    ) : null}
+                  return (
+                    <article key={message.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
+                      <div className="bubble">
+                        <button
+                          type="button"
+                          className={`message-star-btn ${isStarred ? 'active' : ''}`}
+                          onClick={() =>
+                            toggleMessageStar(message, {
+                              groupId: isGroupChatActive ? activeGroup?.id : null,
+                              peerId: !isGroupChatActive ? activeUser?.id : null,
+                            })
+                          }
+                          title={isStarred ? 'Remove from starred' : 'Add to starred'}
+                          aria-label={isStarred ? 'Remove from starred' : 'Add to starred'}
+                        >
+                          <FontAwesomeIcon icon={faStar} />
+                        </button>
 
-                    {attachment ? (
-                      attachment.caption ? <p>{attachment.caption}</p> : null
-                    ) : (
-                      <p>{message.message}</p>
-                    )}
-                    <span>{formatTime(message.created_at)}</span>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                        {isGroupChatActive && !isOwn ? (
+                          <p className="group-sender-name">{getUserNameById(message.sender_id)}</p>
+                        ) : null}
 
-          <form className="composer" onSubmit={sendMessage}>
+                        {attachment && attachment.type === 'image' && attachment.url ? (
+                          <a
+                            className="attachment-link image"
+                            href={attachment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <img src={attachment.url} alt={attachment.name} loading="lazy" />
+                          </a>
+                        ) : null}
+
+                        {attachment && attachment.type === 'file' && attachment.url ? (
+                          <a
+                            className="attachment-link file"
+                            href={attachment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {attachment.name}
+                          </a>
+                        ) : null}
+
+                        {attachment ? (
+                          attachment.caption ? <p>{attachment.caption}</p> : null
+                        ) : (
+                          <p>{message.message}</p>
+                        )}
+                        <span>{formatTime(message.created_at)}</span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <form className="composer" onSubmit={sendMessage}>
             <div className="attachment-menu-wrap" ref={attachmentMenuRef}>
               <button
                 type="button"
                 className="attachment-toggle"
                 onClick={() => setIsAttachmentMenuOpen((previous) => !previous)}
                 disabled={
+                  isStarredViewActive ||
                   (!activeUser && !isGroupChatActive) ||
                   (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
                 }
@@ -1822,6 +2154,7 @@ function App() {
                   : 'Select a user first'
               }
               disabled={
+                isStarredViewActive ||
                 (!activeUser && !isGroupChatActive) ||
                 (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
               }
@@ -1842,6 +2175,7 @@ function App() {
             <button
               type="submit"
               disabled={
+                isStarredViewActive ||
                 (!activeUser && !isGroupChatActive) ||
                 (!draft.trim() && !selectedAttachment) ||
                 (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
@@ -1849,9 +2183,39 @@ function App() {
             >
               <FontAwesomeIcon icon={faPaperPlane} />
             </button>
-          </form>
+              </form>
+            </>
+          )}
         </section>
       </main>
+
+      {isAppLocked ? (
+        <div className="app-lock-overlay" role="presentation">
+          <section className="app-lock-modal" role="dialog" aria-modal="true" aria-label="Unlock app">
+            <div className="app-lock-icon">
+              <FontAwesomeIcon icon={faLock} />
+            </div>
+            <h3>App Locked</h3>
+            <p>Enter PIN to unlock your chat workspace.</p>
+            <form className="app-lock-form" onSubmit={unlockApp}>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={lockPinInput}
+                onChange={(event) => {
+                  setLockPinInput(event.target.value);
+                  if (lockError) {
+                    setLockError('');
+                  }
+                }}
+                placeholder="Enter PIN"
+              />
+              {lockError ? <p className="error-banner">{lockError}</p> : null}
+              <button type="submit">Unlock</button>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       {isCreateGroupOpen ? (
         <div className="group-modal-backdrop" role="presentation" onClick={() => setIsCreateGroupOpen(false)}>
