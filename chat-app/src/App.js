@@ -4,6 +4,7 @@ import RegisterPage from './components/RegisterPage';
 import Notification from './components/notification';
 import Profile from './components/profile';
 import TaskTracker from './components/TaskTracker';
+import MilestoneTracker from './components/MilestoneTracker';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faPaperPlane,
@@ -15,6 +16,7 @@ import {
   faUserGroup,
   faListCheck,
   faEllipsisVertical,
+  faChartLine,
 } from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
@@ -102,6 +104,7 @@ function App() {
   const isGroupChatActive = activeChatMode === 'group' && Boolean(activeGroup);
   const isTaskTrackingActive = activeChatMode === 'task';
   const isStarredViewActive = activeChatMode === 'starred';
+  const isMilestoneTrackingActive = activeChatMode === 'milestone';
   const visibleMessages = useMemo(() => {
     return isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
   }, [isGroupChatActive, groupMessagesById, activeGroup, messages]);
@@ -1712,6 +1715,7 @@ function App() {
                   value={loginForm.email}
                   onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
                   placeholder="you@email.com"
+                  autoComplete="email"
                 />
 
                 <label htmlFor="login-password">Password</label>
@@ -1721,6 +1725,7 @@ function App() {
                   value={loginForm.password}
                   onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
                   placeholder="Enter your password"
+                  autoComplete="current-password"
                 />
 
                 <button type="submit" disabled={authLoading}>
@@ -1785,6 +1790,19 @@ function App() {
                     >
                       <FontAwesomeIcon icon={faListCheck} />
                       <span>Tasks</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={isMilestoneTrackingActive ? 'active' : ''}
+                      onClick={() => {
+                        setActiveChatMode('milestone');
+                        setSelectedAttachment(null);
+                        setIsAttachmentMenuOpen(false);
+                        setIsQuickActionsOpen(false);
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faChartLine} />
+                      <span>Milestones</span>
                     </button>
                     <button
                       type="button"
@@ -1915,6 +1933,8 @@ function App() {
               <p className="label">
                 {isTaskTrackingActive
                   ? 'Workspace'
+                  : isMilestoneTrackingActive
+                  ? 'Projects'
                   : isStarredViewActive
                   ? 'Saved'
                   : isGroupChatActive
@@ -1924,6 +1944,8 @@ function App() {
               <h2>
                 {isTaskTrackingActive
                   ? 'Project Task Tracker'
+                  : isMilestoneTrackingActive
+                  ? 'Project Milestones'
                   : isStarredViewActive
                   ? 'Starred Messages'
                   : isGroupChatActive
@@ -1934,6 +1956,8 @@ function App() {
               </h2>
               {isTaskTrackingActive ? (
                 <p className="active-user-presence">Track work items, owners, and completion state.</p>
+              ) : isMilestoneTrackingActive ? (
+                <p className="active-user-presence">Manage project milestones and track progress.</p>
               ) : isStarredViewActive ? (
                 <p className="active-user-presence">Your important messages are pinned here.</p>
               ) : isGroupChatActive ? (
@@ -1970,6 +1994,13 @@ function App() {
               onAddTask={addTaskItem}
               onToggleTask={toggleTaskItem}
               onDeleteTask={deleteTaskItem}
+            />
+          ) : isMilestoneTrackingActive ? (
+            <MilestoneTracker
+              group={activeGroup}
+              apiBase={apiBase}
+              currentUser={currentUser}
+              users={users}
             />
           ) : isStarredViewActive ? (
             <div

@@ -241,6 +241,130 @@ ALTER TABLE `messages`
 --
 ALTER TABLE `notifications`
   ADD CONSTRAINT `notifications_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `projects`
+--
+
+CREATE TABLE `projects` (
+  `id` int NOT NULL,
+  `group_id` varchar(100) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `description` text,
+  `status` enum('active','paused','completed','archived') DEFAULT 'active',
+  `created_by` int DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `milestones`
+--
+
+CREATE TABLE `milestones` (
+  `id` int NOT NULL,
+  `project_id` int NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `description` text,
+  `status` enum('not_started','in_progress','completed','on_hold') DEFAULT 'not_started',
+  `priority` enum('Low','Medium','High') DEFAULT 'Medium',
+  `start_date` date,
+  `due_date` date,
+  `progress_percentage` int DEFAULT '0',
+  `created_by` int DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `milestone_tasks`
+--
+
+CREATE TABLE `milestone_tasks` (
+  `id` int NOT NULL,
+  `milestone_id` int NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `description` text,
+  `assigned_to` int,
+  `status` enum('open','in_progress','completed','blocked') DEFAULT 'open',
+  `priority` enum('Low','Medium','High') DEFAULT 'Medium',
+  `due_date` date,
+  `completed` tinyint(1) DEFAULT '0',
+  `created_by` int DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Indexes for table `projects`
+--
+ALTER TABLE `projects`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `group_id` (`group_id`),
+  ADD KEY `created_by` (`created_by`);
+
+--
+-- Indexes for table `milestones`
+--
+ALTER TABLE `milestones`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `project_id` (`project_id`),
+  ADD KEY `created_by` (`created_by`);
+
+--
+-- Indexes for table `milestone_tasks`
+--
+ALTER TABLE `milestone_tasks`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `milestone_id` (`milestone_id`),
+  ADD KEY `assigned_to` (`assigned_to`),
+  ADD KEY `created_by` (`created_by`);
+
+--
+-- AUTO_INCREMENT for table `projects`
+--
+ALTER TABLE `projects`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `milestones`
+--
+ALTER TABLE `milestones`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `milestone_tasks`
+--
+ALTER TABLE `milestone_tasks`
+  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+
+--
+-- Constraints for table `projects`
+--
+ALTER TABLE `projects`
+  ADD CONSTRAINT `projects_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `milestones`
+--
+ALTER TABLE `milestones`
+  ADD CONSTRAINT `milestones_ibfk_1` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `milestones_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `milestone_tasks`
+--
+ALTER TABLE `milestone_tasks`
+  ADD CONSTRAINT `milestone_tasks_ibfk_1` FOREIGN KEY (`milestone_id`) REFERENCES `milestones` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `milestone_tasks_ibfk_2` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `milestone_tasks_ibfk_3` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
