@@ -37,9 +37,8 @@ const buildConversationContents = (messages, prompt) => {
 	return recentMessages;
 };
 
-function BeeAiPanel({ currentUser }) {
-	const apiKey = process.env.REACT_APP_GEMINI_API_KEY || '';
-	const model = process.env.REACT_APP_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
+	const apiBase = apiBaseProp || process.env.REACT_APP_API_BASE || 'http://localhost/Real-time_chatApp/API';
 	const [messages, setMessages] = useState(() => getWelcomeMessages(currentUser?.username));
 	const [draft, setDraft] = useState('');
 	const [loading, setLoading] = useState(false);
@@ -79,11 +78,6 @@ function BeeAiPanel({ currentUser }) {
 			return;
 		}
 
-		if (!apiKey) {
-			setError('Set REACT_APP_GEMINI_API_KEY in your .env file to enable BeeAI.');
-			return;
-		}
-
 		const userMessage = {
 			id: `${Date.now()}-user`,
 			role: 'user',
@@ -98,34 +92,23 @@ function BeeAiPanel({ currentUser }) {
 		setLoading(true);
 
 		try {
-			const response = await fetch(
-				`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify({
-						contents: buildConversationContents(messages, trimmedDraft),
-						generationConfig: {
-							temperature: 0.7,
-							topP: 0.95,
-							maxOutputTokens: 1024,
-						},
-					}),
-				}
-			);
+			const response = await fetch(`${apiBase.replace(/\/$/, '')}/beeai.php`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					prompt: trimmedDraft,
+					messages: nextMessages,
+				}),
+			});
 
 			const data = await response.json();
 			if (!response.ok) {
-				throw new Error(data?.error?.message || 'BeeAI request failed.');
+				throw new Error(data?.message || data?.error || 'BeeAI request failed.');
 			}
 
-			const replyText = data?.candidates?.[0]?.content?.parts
-				?.map((part) => part.text)
-				.filter(Boolean)
-				.join('')
-				.trim();
+			const replyText = String(data?.reply || '').trim();
 
 			if (!replyText) {
 				throw new Error('BeeAI returned an empty response.');
@@ -148,7 +131,7 @@ function BeeAiPanel({ currentUser }) {
 				{
 					id: `${Date.now()}-assistant-error`,
 					role: 'assistant',
-					content: 'I could not reach BeeAI. Check your API key and model name, then try again.',
+					content: 'I could not reach BeeAI. Check the server endpoint and API key, then try again.',
 					createdAt: new Date().toISOString(),
 				},
 			]);
@@ -208,7 +191,7 @@ function BeeAiPanel({ currentUser }) {
 					type="text"
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
-					placeholder={apiKey ? 'Ask BeeAI...' : 'Add your Gemini API key to enable BeeAI'}
+					placeholder="Ask BeeAI..."
 					disabled={loading}
 				/>
 				<button

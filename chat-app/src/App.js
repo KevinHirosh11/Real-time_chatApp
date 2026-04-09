@@ -1773,7 +1773,7 @@ function App() {
             <div className="profile-card-head">
               {renderAvatar(currentUser, 'avatar avatar-large')}
               <div>
-                <p className="label">Signed in as</p>
+                <p className="label"></p>
                 <h2>{currentUser ? currentUser.username : 'Loading...'}</h2>
                 <p>{currentUser ? currentUser.email : 'Fetching profile'}</p>
               </div>
@@ -2010,7 +2010,7 @@ function App() {
           </header>
 
           {isBeeAiActive ? (
-            <BeeAiPanel currentUser={currentUser} />
+            <BeeAiPanel currentUser={currentUser} apiBase={apiBase} />
           ) : isTaskTrackingActive ? (
             <TaskTracker
               tasks={tasks}
