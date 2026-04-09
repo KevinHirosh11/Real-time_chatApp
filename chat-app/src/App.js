@@ -5,6 +5,7 @@ import Notification from './components/notification';
 import Profile from './components/profile';
 import TaskTracker from './components/TaskTracker';
 import MilestoneTracker from './components/MilestoneTracker';
+import BeeAiPanel from './components/beeai';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faPaperPlane,
@@ -105,6 +106,7 @@ function App() {
   const isTaskTrackingActive = activeChatMode === 'task';
   const isStarredViewActive = activeChatMode === 'starred';
   const isMilestoneTrackingActive = activeChatMode === 'milestone';
+  const isBeeAiActive = activeChatMode === 'beeai';
   const visibleMessages = useMemo(() => {
     return isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
   }, [isGroupChatActive, groupMessagesById, activeGroup, messages]);
@@ -1054,6 +1056,16 @@ function App() {
     }
   };
 
+  const openBeeAiAssistant = () => {
+    setActiveChatMode('beeai');
+    setActiveGroupId(null);
+    setActiveUserId(null);
+    setSelectedAttachment(null);
+    setIsAttachmentMenuOpen(false);
+    setDraft('');
+    setChatError('');
+  };
+
   const handleLoginSubmit = async (event) => {
     event.preventDefault();
     setAuthError('');
@@ -1862,7 +1874,18 @@ function App() {
           <div className="contacts-wrap">
             <div className="contacts-header">
               <h3>Contacts</h3>
-              <span>{users.length + groups.length}</span>
+              <div className="contacts-header-actions">
+                <button
+                  type="button"
+                  className={`beeai-btn ${isBeeAiActive ? 'active-sidebar-btn' : ''}`}
+                  onClick={openBeeAiAssistant}
+                  aria-label="Open BeeAI assistant"
+                  title="Open BeeAI assistant"
+                >
+                  <img src="/bee.png" alt="" aria-hidden="true" />
+                </button>
+                <span>{users.length + groups.length}</span>
+              </div>
             </div>
 
             {!loadingUsers && users.length === 0 ? (
@@ -1986,7 +2009,9 @@ function App() {
             </div>
           </header>
 
-          {isTaskTrackingActive ? (
+          {isBeeAiActive ? (
+            <BeeAiPanel currentUser={currentUser} />
+          ) : isTaskTrackingActive ? (
             <TaskTracker
               tasks={tasks}
               users={users}

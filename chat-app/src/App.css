@@ -576,6 +576,40 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  margin-left: auto;
+}
+
+.beeai-btn {
+  border: 1px solid #b9d8e8;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #eefcff, #d9f4ff);
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, color 150ms ease;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.beeai-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.beeai-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(19, 86, 119, 0.14);
+}
+
+.beeai-btn.active-sidebar-btn {
+  background: linear-gradient(145deg, #0f8c8a, #1588a8);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(15, 154, 161, 0.16);
 }
 
 .new-group-btn {
@@ -774,6 +808,180 @@
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+}
+
+.beeai-panel {
+  padding: 1rem 1.2rem 1.1rem;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  min-height: 0;
+}
+
+.beeai-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.beeai-panel-head h3 {
+  margin: 0.18rem 0 0;
+  color: #14384f;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.2rem;
+}
+
+.beeai-panel-subtext {
+  margin: 0.32rem 0 0;
+  color: #5f8197;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.beeai-reset-btn {
+  border: 1px solid #c7deec;
+  border-radius: 999px;
+  background: #f4fbff;
+  color: #1d556e;
+  padding: 0.38rem 0.72rem;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.beeai-reset-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(19, 86, 119, 0.14);
+}
+
+.beeai-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.beeai-prompts button {
+  border: 1px solid #c7deec;
+  border-radius: 999px;
+  background: #eef8fd;
+  color: #1d556e;
+  padding: 0.42rem 0.72rem;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.beeai-prompts button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(19, 86, 119, 0.12);
+}
+
+.beeai-thread {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding-right: 0.2rem;
+}
+
+.beeai-message {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.beeai-message.user {
+  justify-content: flex-end;
+}
+
+.beeai-message.assistant {
+  justify-content: flex-start;
+}
+
+.beeai-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #0f8c8a, #1588a8);
+  color: #effcff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 800;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.beeai-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.beeai-bubble {
+  max-width: min(560px, 80%);
+  border-radius: 16px;
+  padding: 0.78rem 0.9rem;
+  background: #ffffff;
+  border: 1px solid #dcebf4;
+  box-shadow: 0 10px 24px rgba(19, 86, 119, 0.08);
+}
+
+.beeai-message.user .beeai-bubble {
+  background: linear-gradient(140deg, #dff7ff, #cbefff);
+  border-color: #b9d8e8;
+}
+
+.beeai-bubble p {
+  margin: 0;
+  color: #14384f;
+  line-height: 1.5;
+}
+
+.beeai-bubble span {
+  display: block;
+  margin-top: 0.35rem;
+  color: #6d8a9d;
+  font-size: 0.75rem;
+}
+
+.beeai-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.beeai-composer input {
+  border: 1px solid #cbe0ee;
+  border-radius: 12px;
+  padding: 0.72rem 0.85rem;
+  line-height: 1.35;
+  font-size: 0.95rem;
+  font-family: 'Manrope', sans-serif;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.beeai-composer input:focus {
+  border-color: #0f9aa1;
+  box-shadow: 0 0 0 3px rgba(15, 154, 161, 0.14);
+}
+
+.beeai-composer button {
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #0f8c8a, #1588a8);
+  color: #effcff;
+  padding: 0 0.95rem;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .tasks-board {
@@ -1463,6 +1671,50 @@
 .chat-shell.theme-dark .contact-item p,
 .chat-shell.theme-dark .profile-card h2 {
   color: #e7f2f9;
+}
+
+.chat-shell.theme-dark .beeai-btn,
+.chat-shell.theme-dark .beeai-reset-btn,
+.chat-shell.theme-dark .beeai-prompts button {
+  background: #142432;
+  border-color: #2b4257;
+}
+
+.chat-shell.theme-dark .beeai-btn.active-sidebar-btn {
+  background: linear-gradient(145deg, #0c827e, #11718a);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(12, 130, 126, 0.24);
+}
+
+.chat-shell.theme-dark .beeai-panel-head h3,
+.chat-shell.theme-dark .beeai-bubble p {
+  color: #e7f2f9;
+}
+
+.chat-shell.theme-dark .beeai-panel-subtext,
+.chat-shell.theme-dark .beeai-bubble span {
+  color: #96afc0;
+}
+
+.chat-shell.theme-dark .beeai-bubble {
+  background: #10212f;
+  border-color: #243c50;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.chat-shell.theme-dark .beeai-message.user .beeai-bubble {
+  background: linear-gradient(140deg, #183447, #14384f);
+  border-color: #2b5670;
+}
+
+.chat-shell.theme-dark .beeai-composer input {
+  background: #10212f;
+  border-color: #294258;
+  color: #e7f2f9;
+}
+
+.chat-shell.theme-dark .beeai-composer input::placeholder {
+  color: #86a1b4;
 }
 
 .chat-shell.theme-dark .active-user-presence {
@@ -2274,6 +2526,18 @@
   .contacts-header-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .beeai-panel-head {
+    flex-direction: column;
+  }
+
+  .beeai-bubble {
+    max-width: 100%;
+  }
+
+  .beeai-composer {
+    grid-template-columns: 1fr;
   }
 
   .group-modal {
