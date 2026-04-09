@@ -45,6 +45,14 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 	const [error, setError] = useState('');
 	const threadRef = useRef(null);
 
+	const makeAssistantErrorMessage = (message) => {
+		if (!message) {
+			return 'I could not reach BeeAI right now. Try again in a moment.';
+		}
+
+		return String(message);
+	};
+
 	useEffect(() => {
 		setMessages(getWelcomeMessages(currentUser?.username));
 		setDraft('');
@@ -105,7 +113,8 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 
 			const data = await response.json();
 			if (!response.ok) {
-				throw new Error(data?.message || data?.error || 'BeeAI request failed.');
+				const message = data?.message || data?.error || 'BeeAI request failed.';
+				throw new Error(message);
 			}
 
 			const replyText = String(data?.reply || '').trim();
@@ -131,7 +140,7 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 				{
 					id: `${Date.now()}-assistant-error`,
 					role: 'assistant',
-					content: 'I could not reach BeeAI. Check the server endpoint and API key, then try again.',
+					content: makeAssistantErrorMessage(message),
 					createdAt: new Date().toISOString(),
 				},
 			]);

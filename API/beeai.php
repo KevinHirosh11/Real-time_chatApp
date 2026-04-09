@@ -36,6 +36,27 @@ function buildBeeAiContents(array $messages, string $prompt): array
 	return $contents;
 }
 
+function isGeminiQuotaError(?int $statusCode, array $decoded): bool
+{
+	if ($statusCode === 429) {
+		return true;
+	}
+
+	$error = $decoded['error'] ?? null;
+	if (!is_array($error)) {
+		return false;
+	}
+
+	$code = strtoupper((string) ($error['status'] ?? ''));
+	$message = strtoupper((string) ($error['message'] ?? ''));
+
+	return str_contains($code, 'RESOURCE_EXHAUSTED')
+		|| str_contains($code, 'QUOTA')
+		|| str_contains($message, 'QUOTA')
+		|| str_contains($message, 'RATE LIMIT')
+		|| str_contains($message, 'RESOURCE EXHAUSTED');
+}
+
 try {
 	if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 		jsonResponse(405, [
@@ -109,9 +130,17 @@ try {
 	}
 
 	if ($statusCode < 200 || $statusCode >= 300) {
+		if (isGeminiQuotaError($statusCode, $decoded)) {
+			jsonResponse(429, [
+				'success' => false,
+				'message' => 'BeeAI is temporarily rate-limited. Please wait a moment and try again.',
+				'retryAfter' => 30,
+			]);
+		}
+
 		jsonResponse($statusCode > 0 ? $statusCode : 502, [
 			'success' => false,
-			'message' => $decoded['error']['message'] ?? 'Gemini request failed.',
+			'message' => $decoded['error']['message'] ?? 'BeeAI request failed.',
 		]);
 	}
 
@@ -123,7 +152,7 @@ try {
 	if ($replyText === '') {
 		jsonResponse(502, [
 			'success' => false,
-			'message' => 'Gemini returned an empty response.',
+			'message' => 'BeeAI returned an empty response.',
 		]);
 	}
 
