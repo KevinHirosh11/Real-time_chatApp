@@ -1236,6 +1236,11 @@
   flex-shrink: 0;
 }
 
+.emoji-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .attachment-toggle {
   border: 1px solid #cbe0ee;
   background: #f9fdff;
@@ -1255,6 +1260,29 @@
 }
 
 .attachment-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.emoji-toggle {
+  border: 1px solid #cbe0ee;
+  background: #f9fdff;
+  color: #1d6a8f;
+  border-radius: 12px;
+  width: 45px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.emoji-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(16, 70, 96, 0.15);
+}
+
+.emoji-toggle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -1291,6 +1319,89 @@
 
 .attachment-menu button:hover {
   background: #ebf7ff;
+}
+
+.emoji-menu {
+  position: absolute;
+  bottom: calc(100% + 0.55rem);
+  left: 0;
+  width: min(340px, calc(100vw - 2rem));
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #d9eaf4;
+  box-shadow: 0 12px 28px rgba(11, 50, 70, 0.18);
+  overflow: hidden;
+  z-index: 7;
+}
+
+.emoji-menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid #e6f0f6;
+  background: linear-gradient(180deg, #ffffff, #f6fbff);
+}
+
+.emoji-menu-header span {
+  color: #164259;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+}
+
+.emoji-menu-header button {
+  border: 0;
+  background: #edf7fd;
+  color: #1d6a8f;
+  border-radius: 999px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.emoji-menu-body {
+  max-height: 280px;
+  overflow: auto;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.emoji-group h4 {
+  margin: 0 0 0.45rem;
+  color: #537287;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.emoji-button {
+  border: 1px solid #e3edf4;
+  background: #fdfefe;
+  border-radius: 10px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.emoji-button:hover {
+  transform: translateY(-1px);
+  border-color: #b6d7e6;
+  background: #eef8fd;
 }
 
 .composer input {

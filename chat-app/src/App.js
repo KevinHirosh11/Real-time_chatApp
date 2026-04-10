@@ -6,6 +6,7 @@ import Profile from './components/profile';
 import TaskTracker from './components/TaskTracker';
 import MilestoneTracker from './components/MilestoneTracker';
 import BeeAiPanel from './components/beeai';
+import EmojiPicker, { EMOJI_SETS } from './components/emojis';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faPaperPlane,
@@ -18,6 +19,7 @@ import {
   faListCheck,
   faEllipsisVertical,
   faChartLine,
+  faFaceSmile,
 } from '@fortawesome/free-solid-svg-icons';
 
 const THEME_STORAGE_KEY = 'chat_app_theme';
@@ -81,6 +83,7 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [isAtMessageBottom, setIsAtMessageBottom] = useState(true);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState(null);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
   const [isAppLocked, setIsAppLocked] = useState(false);
@@ -92,7 +95,9 @@ function App() {
   const activeUserIdRef = useRef(null);
   const messagesAreaRef = useRef(null);
   const attachmentMenuRef = useRef(null);
+  const emojiMenuRef = useRef(null);
   const quickActionsMenuRef = useRef(null);
+  const draftInputRef = useRef(null);
   const imageAttachmentInputRef = useRef(null);
   const fileAttachmentInputRef = useRef(null);
   const sidebarHideTimerRef = useRef(null);
@@ -495,6 +500,10 @@ function App() {
     const handleOutsideClick = (event) => {
       if (attachmentMenuRef.current && !attachmentMenuRef.current.contains(event.target)) {
         setIsAttachmentMenuOpen(false);
+      }
+
+      if (emojiMenuRef.current && !emojiMenuRef.current.contains(event.target)) {
+        setIsEmojiMenuOpen(false);
       }
 
       if (quickActionsMenuRef.current && !quickActionsMenuRef.current.contains(event.target)) {
@@ -905,6 +914,7 @@ function App() {
       setDraft('');
       setSelectedAttachment(null);
       setIsAttachmentMenuOpen(false);
+      setIsEmojiMenuOpen(false);
 
       const socket = socketRef.current;
       const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
@@ -1004,6 +1014,7 @@ function App() {
         setDraft('');
         setSelectedAttachment(null);
         setIsAttachmentMenuOpen(false);
+        setIsEmojiMenuOpen(false);
 
         if (!savedMessage) {
           fetchMessages(currentUser.id, activeUser.id);
@@ -1028,6 +1039,7 @@ function App() {
         })
       );
       setDraft('');
+      setIsEmojiMenuOpen(false);
       return;
     }
 
@@ -1050,6 +1062,7 @@ function App() {
       }
 
       setDraft('');
+      setIsEmojiMenuOpen(false);
       fetchMessages(currentUser.id, activeUser.id);
     } catch (err) {
       setChatError(err.message || 'Failed to send message');
@@ -1062,6 +1075,7 @@ function App() {
     setActiveUserId(null);
     setSelectedAttachment(null);
     setIsAttachmentMenuOpen(false);
+    setIsEmojiMenuOpen(false);
     setDraft('');
     setChatError('');
   };
@@ -1158,6 +1172,7 @@ function App() {
     setDraft('');
     setSelectedAttachment(null);
     setIsAttachmentMenuOpen(false);
+    setIsEmojiMenuOpen(false);
     setIsCreateGroupOpen(false);
     setIsGroupSettingsOpen(false);
     setActiveUserId(null);
@@ -1202,6 +1217,7 @@ function App() {
 
   const openAttachmentPicker = (category) => {
     setIsAttachmentMenuOpen(false);
+    setIsEmojiMenuOpen(false);
 
     if (category === 'image' && imageAttachmentInputRef.current) {
       imageAttachmentInputRef.current.click();
@@ -1211,6 +1227,34 @@ function App() {
     if (category === 'file' && fileAttachmentInputRef.current) {
       fileAttachmentInputRef.current.click();
     }
+  };
+
+  const insertEmoji = (emoji) => {
+    if (!emoji || typeof emoji !== 'string') {
+      return;
+    }
+
+    setDraft((previousDraft) => {
+      const input = draftInputRef.current;
+
+      if (!input || document.activeElement !== input) {
+        return `${previousDraft}${emoji}`;
+      }
+
+      const start = input.selectionStart ?? previousDraft.length;
+      const end = input.selectionEnd ?? previousDraft.length;
+      const nextDraft = `${previousDraft.slice(0, start)}${emoji}${previousDraft.slice(end)}`;
+
+      window.requestAnimationFrame(() => {
+        const cursorPosition = start + emoji.length;
+        input.focus();
+        input.setSelectionRange(cursorPosition, cursorPosition);
+      });
+
+      return nextDraft;
+    });
+
+    setIsEmojiMenuOpen(false);
   };
 
   const handleAttachmentSelected = (event, category) => {
@@ -1485,6 +1529,7 @@ function App() {
     setDraft('');
     setSelectedAttachment(null);
     setIsAttachmentMenuOpen(false);
+    setIsEmojiMenuOpen(false);
     relayGroupMetadata(nextGroup, 'upsert');
     setIsCreateGroupOpen(false);
   };
@@ -1542,6 +1587,8 @@ function App() {
       },
       'upsert'
     );
+
+    setIsEmojiMenuOpen(false);
 
     setIsGroupSettingsOpen(false);
   };
@@ -2196,7 +2243,36 @@ function App() {
               />
             </div>
 
+            <div className="emoji-menu-wrap" ref={emojiMenuRef}>
+              <button
+                type="button"
+                className="emoji-toggle"
+                onClick={() => {
+                  setIsEmojiMenuOpen((previous) => !previous);
+                  setIsAttachmentMenuOpen(false);
+                }}
+                disabled={
+                  isStarredViewActive ||
+                  (!activeUser && !isGroupChatActive) ||
+                  (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
+                }
+                aria-label="Add emoji"
+                aria-expanded={isEmojiMenuOpen}
+              >
+                <FontAwesomeIcon icon={faFaceSmile} />
+              </button>
+
+              {isEmojiMenuOpen ? (
+                <EmojiPicker
+                  emojiGroups={EMOJI_SETS}
+                  onSelectEmoji={insertEmoji}
+                  onClose={() => setIsEmojiMenuOpen(false)}
+                />
+              ) : null}
+            </div>
+
             <input
+              ref={draftInputRef}
               type="text"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
