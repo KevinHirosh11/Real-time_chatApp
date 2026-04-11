@@ -13,11 +13,15 @@ import {
   faPlus,
   faXmark,
   faLock,
+  faCheck,
   faStar,
   faRightFromBracket,
   faUserGroup,
   faListCheck,
   faEllipsisVertical,
+  faChevronDown,
+  faPenToSquare,
+  faTrash,
   faChartLine,
   faFaceSmile,
 } from '@fortawesome/free-solid-svg-icons';
@@ -86,6 +90,8 @@ function App() {
   const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState(null);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const [activeMessageMenu, setActiveMessageMenu] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
   const [isAppLocked, setIsAppLocked] = useState(false);
   const [lockPinInput, setLockPinInput] = useState('');
   const [lockError, setLockError] = useState('');
@@ -97,6 +103,7 @@ function App() {
   const attachmentMenuRef = useRef(null);
   const emojiMenuRef = useRef(null);
   const quickActionsMenuRef = useRef(null);
+  const messageActionsMenuRef = useRef(null);
   const draftInputRef = useRef(null);
   const imageAttachmentInputRef = useRef(null);
   const fileAttachmentInputRef = useRef(null);
@@ -112,6 +119,7 @@ function App() {
   const isStarredViewActive = activeChatMode === 'starred';
   const isMilestoneTrackingActive = activeChatMode === 'milestone';
   const isBeeAiActive = activeChatMode === 'beeai';
+  const isEditingMessage = Boolean(editingMessage);
   const visibleMessages = useMemo(() => {
     return isGroupChatActive ? groupMessagesById[activeGroup.id] || [] : messages;
   }, [isGroupChatActive, groupMessagesById, activeGroup, messages]);
@@ -230,6 +238,11 @@ function App() {
     getTasksStorageKey,
     getStarredMessagesStorageKey,
   ]);
+
+  useEffect(() => {
+    setActiveMessageMenu(null);
+    setEditingMessage(null);
+  }, [activeChatMode, activeUserId, activeGroupId, currentUser]);
 
   useEffect(() => {
     if (!currentUser || typeof window === 'undefined') {
@@ -509,6 +522,10 @@ function App() {
       if (quickActionsMenuRef.current && !quickActionsMenuRef.current.contains(event.target)) {
         setIsQuickActionsOpen(false);
       }
+
+      if (messageActionsMenuRef.current && !messageActionsMenuRef.current.contains(event.target)) {
+        setActiveMessageMenu(null);
+      }
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
@@ -669,6 +686,118 @@ function App() {
               };
             });
 
+            return;
+          }
+
+          if (payload.type === 'group_message_update') {
+            const packet = payload.data || {};
+            const incomingGroup = packet.group && typeof packet.group === 'object' ? packet.group : {};
+            const incomingGroupId = String(packet.groupId || incomingGroup.id || '').trim();
+            const incomingMessageId = Number(packet.id || 0);
+            const incomingSenderId = Number(packet.senderId || 0);
+
+            if (!incomingGroupId || incomingMessageId <= 0 || incomingSenderId <= 0) {
+              return;
+            }
+
+            updateGroupMessageLocally(incomingGroupId, incomingMessageId, {
+              message: String(packet.message || ''),
+              message_type: String(packet.messageType || 'text'),
+            });
+
+            if (editingMessage?.message?.id === incomingMessageId) {
+              setEditingMessage(null);
+              setDraft('');
+            }
+
+            setActiveMessageMenu(null);
+            return;
+          }
+
+          if (payload.type === 'group_message_delete') {
+            const packet = payload.data || {};
+            const incomingGroup = packet.group && typeof packet.group === 'object' ? packet.group : {};
+            const incomingGroupId = String(packet.groupId || incomingGroup.id || '').trim();
+            const incomingMessageId = Number(packet.id || 0);
+            const incomingSenderId = Number(packet.senderId || 0);
+
+            if (!incomingGroupId || incomingMessageId <= 0 || incomingSenderId <= 0) {
+              return;
+            }
+
+            deleteGroupMessageLocally(incomingGroupId, incomingMessageId);
+            removeStarForMessage(
+              {
+                id: incomingMessageId,
+                sender_id: incomingSenderId,
+                created_at: packet.createdAt || new Date().toISOString(),
+              },
+              { groupId: incomingGroupId }
+            );
+
+            if (editingMessage?.message?.id === incomingMessageId) {
+              setEditingMessage(null);
+              setDraft('');
+            }
+
+            setActiveMessageMenu(null);
+            return;
+          }
+
+          if (payload.type === 'message_update' || payload.type === 'message_delete') {
+            const packet = payload.data || {};
+            const incomingMessageId = Number(packet.id || 0);
+            const incomingSenderId = Number(packet.senderId || 0);
+            const incomingReceiverId = Number(packet.receiverId || 0);
+            const peerId = activeUserIdRef.current;
+            const isCurrentConversation =
+              peerId &&
+              ((incomingSenderId === currentUser.id && incomingReceiverId === peerId) ||
+                (incomingSenderId === peerId && incomingReceiverId === currentUser.id));
+
+            if (!isCurrentConversation || incomingMessageId <= 0 || incomingSenderId <= 0 || incomingReceiverId <= 0) {
+              return;
+            }
+
+            if (payload.type === 'message_update') {
+              setMessages((previous) =>
+                previous.map((message) =>
+                  Number(message.id) === incomingMessageId
+                    ? {
+                        ...message,
+                        message: String(packet.message || ''),
+                        message_type: String(packet.messageType || message.message_type || 'text'),
+                        created_at: packet.createdAt || message.created_at,
+                      }
+                    : message
+                )
+              );
+
+              if (editingMessage?.message?.id === incomingMessageId) {
+                setEditingMessage(null);
+                setDraft('');
+              }
+
+              setActiveMessageMenu(null);
+              return;
+            }
+
+            setMessages((previous) => previous.filter((message) => Number(message.id) !== incomingMessageId));
+            removeStarForMessage(
+              {
+                id: incomingMessageId,
+                sender_id: incomingSenderId,
+                created_at: packet.createdAt || new Date().toISOString(),
+              },
+              { peerId: incomingReceiverId }
+            );
+
+            if (editingMessage?.message?.id === incomingMessageId) {
+              setEditingMessage(null);
+              setDraft('');
+            }
+
+            setActiveMessageMenu(null);
             return;
           }
 
@@ -881,6 +1010,123 @@ function App() {
     event.preventDefault();
     const trimmedDraft = draft.trim();
 
+    if (isEditingMessage) {
+      if (!trimmedDraft) {
+        setChatError('Message cannot be empty');
+        return;
+      }
+
+      const messageToEdit = editingMessage?.message || null;
+      const editOptions = editingMessage?.options || {};
+
+      if (!messageToEdit) {
+        setEditingMessage(null);
+        return;
+      }
+
+      const nextMessageBody = buildEditedMessageBody(messageToEdit, trimmedDraft);
+
+      try {
+        if (editOptions.groupId) {
+          updateGroupMessageLocally(editOptions.groupId, messageToEdit.id, {
+            message: nextMessageBody,
+            message_type: String(messageToEdit.message_type || 'text'),
+          });
+
+          const socket = socketRef.current;
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(
+              JSON.stringify({
+                type: 'group_message_update',
+                id: Number(messageToEdit.id),
+                senderId: Number(currentUser.id),
+                groupId: String(editOptions.groupId),
+                message: nextMessageBody,
+                messageType: String(messageToEdit.message_type || 'text'),
+                createdAt: messageToEdit.created_at,
+                group: activeGroup
+                  ? {
+                      id: activeGroup.id,
+                      name: activeGroup.name,
+                      description: activeGroup.description,
+                      image: activeGroup.image,
+                      memberIds: activeGroup.memberIds,
+                      adminIds: activeGroup.adminIds,
+                      permissions: activeGroup.permissions,
+                      createdBy: activeGroup.createdBy,
+                    }
+                  : null,
+              })
+            );
+          }
+        } else {
+          const response = await fetch(`${apiBase}/messages.php`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              id: Number(messageToEdit.id),
+              sender_id: Number(currentUser.id),
+              receiver_id: Number(editOptions.peerId || activeUser?.id || 0),
+              message: nextMessageBody,
+            }),
+          });
+
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            throw new Error(result.message || 'Failed to update message');
+          }
+
+          const updatedMessage = result.data
+            ? {
+                ...messageToEdit,
+                ...result.data,
+                id: Number(result.data.id || messageToEdit.id),
+                sender_id: Number(result.data.sender_id || messageToEdit.sender_id),
+                receiver_id: Number(result.data.receiver_id || messageToEdit.receiver_id),
+                message: String(result.data.message || nextMessageBody),
+                message_type: String(result.data.message_type || messageToEdit.message_type || 'text'),
+                created_at: result.data.created_at || messageToEdit.created_at,
+              }
+            : {
+                ...messageToEdit,
+                message: nextMessageBody,
+              };
+
+          setMessages((previous) =>
+            previous.map((item) => (item.id === updatedMessage.id ? { ...item, ...updatedMessage } : item))
+          );
+
+          const socket = socketRef.current;
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(
+              JSON.stringify({
+                type: 'message_update',
+                id: Number(updatedMessage.id),
+                senderId: Number(currentUser.id),
+                receiverId: Number(editOptions.peerId || activeUser?.id || 0),
+                message: String(updatedMessage.message || nextMessageBody),
+                messageType: String(updatedMessage.message_type || 'text'),
+                createdAt: updatedMessage.created_at,
+              })
+            );
+          }
+        }
+
+        setDraft('');
+        setEditingMessage(null);
+        setActiveMessageMenu(null);
+        setSelectedAttachment(null);
+        setIsAttachmentMenuOpen(false);
+        setIsEmojiMenuOpen(false);
+      } catch (err) {
+        setChatError(err.message || 'Failed to update message');
+      }
+
+      return;
+    }
+
     if (!currentUser || (!activeUser && !isGroupChatActive) || (!trimmedDraft && !selectedAttachment)) {
       return;
     }
@@ -915,6 +1161,7 @@ function App() {
       setSelectedAttachment(null);
       setIsAttachmentMenuOpen(false);
       setIsEmojiMenuOpen(false);
+      setActiveMessageMenu(null);
 
       const socket = socketRef.current;
       const canSendWithSocket = socket && socket.readyState === WebSocket.OPEN;
@@ -1015,6 +1262,7 @@ function App() {
         setSelectedAttachment(null);
         setIsAttachmentMenuOpen(false);
         setIsEmojiMenuOpen(false);
+        setActiveMessageMenu(null);
 
         if (!savedMessage) {
           fetchMessages(currentUser.id, activeUser.id);
@@ -1040,6 +1288,7 @@ function App() {
       );
       setDraft('');
       setIsEmojiMenuOpen(false);
+      setActiveMessageMenu(null);
       return;
     }
 
@@ -1063,6 +1312,7 @@ function App() {
 
       setDraft('');
       setIsEmojiMenuOpen(false);
+      setActiveMessageMenu(null);
       fetchMessages(currentUser.id, activeUser.id);
     } catch (err) {
       setChatError(err.message || 'Failed to send message');
@@ -1213,6 +1463,258 @@ function App() {
         caption: '',
       };
     }
+  };
+
+  const buildMessageActionKey = (message, { groupId = null, peerId = null } = {}) => {
+    const scope = groupId ? `group:${String(groupId)}` : `direct:${String(peerId || 'active')}`;
+    return `${scope}:${String(message?.id || 'unknown')}`;
+  };
+
+  const getEditableMessageText = (message) => {
+    const attachment = getAttachmentPreview(message);
+    if (attachment) {
+      return String(attachment.caption || '');
+    }
+
+    return String(message?.message || '');
+  };
+
+  const buildEditedMessageBody = (message, nextText) => {
+    const attachment = getAttachmentPreview(message);
+
+    if (attachment) {
+      return JSON.stringify({
+        url: attachment.url,
+        name: attachment.name,
+        size: attachment.size,
+        caption: nextText,
+      });
+    }
+
+    return nextText;
+  };
+
+  const updateGroupMessageLocally = (groupId, messageId, nextFields) => {
+    if (!groupId) {
+      return;
+    }
+
+    setGroupMessagesById((previous) => {
+      const currentGroupMessages = previous[groupId] || [];
+      return {
+        ...previous,
+        [groupId]: currentGroupMessages.map((message) =>
+          Number(message.id) === Number(messageId) ? { ...message, ...nextFields } : message
+        ),
+      };
+    });
+  };
+
+  const deleteGroupMessageLocally = (groupId, messageId) => {
+    if (!groupId) {
+      return;
+    }
+
+    setGroupMessagesById((previous) => {
+      const currentGroupMessages = previous[groupId] || [];
+      return {
+        ...previous,
+        [groupId]: currentGroupMessages.filter((message) => Number(message.id) !== Number(messageId)),
+      };
+    });
+  };
+
+  const deleteDirectMessageLocally = (messageId) => {
+    setMessages((previous) => previous.filter((message) => Number(message.id) !== Number(messageId)));
+  };
+
+  const removeStarForMessage = (message, options = {}) => {
+    const key = buildMessageStarKey(message, options);
+    setStarredMessageKeys((previous) => {
+      if (!previous[key]) {
+        return previous;
+      }
+
+      const { [key]: _, ...rest } = previous;
+      return rest;
+    });
+  };
+
+  const openMessageMenu = (message, options = {}) => {
+    const key = buildMessageActionKey(message, options);
+    setActiveMessageMenu((previous) => (previous?.key === key ? null : { key, options }));
+  };
+
+  const startEditingMessage = (message, options = {}) => {
+    setEditingMessage({ message, options });
+    setDraft(getEditableMessageText(message));
+    setSelectedAttachment(null);
+    setIsAttachmentMenuOpen(false);
+    setIsEmojiMenuOpen(false);
+    setActiveMessageMenu(null);
+  };
+
+  const handleToggleMessageStar = (message, options = {}) => {
+    toggleMessageStar(message, options);
+    setActiveMessageMenu(null);
+  };
+
+  const handleDeleteMessage = async (message, options = {}) => {
+    const shouldDelete = window.confirm('Delete this message?');
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      if (options.groupId) {
+        deleteGroupMessageLocally(options.groupId, message.id);
+        removeStarForMessage(message, options);
+
+        const socket = socketRef.current;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: 'group_message_delete',
+              id: Number(message.id),
+              senderId: Number(currentUser?.id || 0),
+              groupId: String(options.groupId),
+              createdAt: message.created_at,
+              group: activeGroup
+                ? {
+                    id: activeGroup.id,
+                    name: activeGroup.name,
+                    description: activeGroup.description,
+                    image: activeGroup.image,
+                    memberIds: activeGroup.memberIds,
+                    adminIds: activeGroup.adminIds,
+                    permissions: activeGroup.permissions,
+                    createdBy: activeGroup.createdBy,
+                  }
+                : null,
+            })
+          );
+        }
+      } else {
+        const response = await fetch(`${apiBase}/messages.php`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: Number(message.id),
+            sender_id: Number(currentUser?.id || 0),
+            receiver_id: Number(options.peerId || activeUser?.id || 0),
+          }),
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'Failed to delete message');
+        }
+
+        deleteDirectMessageLocally(message.id);
+        removeStarForMessage(message, options);
+
+        const socket = socketRef.current;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(
+            JSON.stringify({
+              type: 'message_delete',
+              id: Number(message.id),
+              senderId: Number(currentUser?.id || 0),
+              receiverId: Number(options.peerId || activeUser?.id || 0),
+              createdAt: message.created_at,
+            })
+          );
+        }
+      }
+
+      if (editingMessage?.message?.id === message.id) {
+        setEditingMessage(null);
+        setDraft('');
+      }
+
+      setActiveMessageMenu(null);
+      setIsAttachmentMenuOpen(false);
+      setIsEmojiMenuOpen(false);
+    } catch (err) {
+      setChatError(err.message || 'Failed to delete message');
+    }
+  };
+
+  const renderMessageCard = ({
+    message,
+    isOwn,
+    conversationOptions = {},
+    contextLabel = '',
+    senderName = '',
+    showSenderName = false,
+  }) => {
+    const attachment = getAttachmentPreview(message);
+    const starKey = buildMessageStarKey(message, conversationOptions);
+    const isStarred = Boolean(starredMessageKeys[starKey]);
+    const menuKey = buildMessageActionKey(message, conversationOptions);
+    const isMenuOpen = activeMessageMenu?.key === menuKey;
+    const canEditOrDelete = Boolean(currentUser && isOwn);
+
+    return (
+      <article
+        key={message.id}
+        className={`message-row ${isOwn ? 'own' : 'other'} ${isMenuOpen ? 'menu-open' : ''}`}
+      >
+        <div className="bubble">
+          <div className="message-actions-wrap" ref={isMenuOpen ? messageActionsMenuRef : null}>
+            <button
+              type="button"
+              className="message-actions-toggle"
+              onClick={() => openMessageMenu(message, conversationOptions)}
+              title="Message actions"
+              aria-label="Message actions"
+              aria-expanded={isMenuOpen}
+            >
+              <FontAwesomeIcon icon={faChevronDown} />
+            </button>
+
+            {isMenuOpen ? (
+              <div className="message-actions-menu" role="menu" aria-label="Message actions">
+                {canEditOrDelete ? (
+                  <button type="button" onClick={() => startEditingMessage(message, conversationOptions)}>
+                    <FontAwesomeIcon icon={faPenToSquare} />
+                    <span>Edit</span>
+                  </button>
+                ) : null}
+                {canEditOrDelete ? (
+                  <button type="button" onClick={() => handleDeleteMessage(message, conversationOptions)}>
+                    <FontAwesomeIcon icon={faTrash} />
+                    <span>Delete</span>
+                  </button>
+                ) : null}
+                <button type="button" className={isStarred ? 'active' : ''} onClick={() => handleToggleMessageStar(message, conversationOptions)}>
+                  <FontAwesomeIcon icon={faStar} />
+                  <span>{isStarred ? 'Unstar' : 'Star'}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {contextLabel ? <p className="group-sender-name">{contextLabel}</p> : null}
+          {showSenderName && senderName ? <p className="group-sender-name">{senderName}</p> : null}
+
+          {attachment && attachment.type === 'image' && attachment.url ? (
+            <a className="attachment-link image" href={attachment.url} target="_blank" rel="noreferrer">
+              <img src={attachment.url} alt={attachment.name} loading="lazy" />
+            </a>
+          ) : null}
+          {attachment && attachment.type === 'file' && attachment.url ? (
+            <a className="attachment-link file" href={attachment.url} target="_blank" rel="noreferrer">
+              {attachment.name}
+            </a>
+          ) : null}
+          {attachment ? attachment.caption ? <p>{attachment.caption}</p> : null : <p>{message.message}</p>}
+          <span>{formatTime(message.created_at)}</span>
+        </div>
+      </article>
+    );
   };
 
   const openAttachmentPicker = (category) => {
@@ -1681,6 +2183,7 @@ function App() {
         starKey,
         message,
         contextLabel: directContextLabel,
+        conversationOptions: { peerId: directPeerId },
       };
     });
 
@@ -1694,6 +2197,7 @@ function App() {
           starKey,
           message,
           contextLabel: label,
+          conversationOptions: { groupId },
         };
       });
     });
@@ -2087,27 +2591,12 @@ function App() {
               {starredMessages.map((item) => {
                 const message = item.message;
                 const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
-                const attachment = getAttachmentPreview(message);
-
-                return (
-                  <article key={item.starKey} className={`message-row ${isOwn ? 'own' : 'other'}`}>
-                    <div className="bubble">
-                      <p className="group-sender-name">{item.contextLabel}</p>
-                      {attachment && attachment.type === 'image' && attachment.url ? (
-                        <a className="attachment-link image" href={attachment.url} target="_blank" rel="noreferrer">
-                          <img src={attachment.url} alt={attachment.name} loading="lazy" />
-                        </a>
-                      ) : null}
-                      {attachment && attachment.type === 'file' && attachment.url ? (
-                        <a className="attachment-link file" href={attachment.url} target="_blank" rel="noreferrer">
-                          {attachment.name}
-                        </a>
-                      ) : null}
-                      {attachment ? attachment.caption ? <p>{attachment.caption}</p> : null : <p>{message.message}</p>}
-                      <span>{formatTime(message.created_at)}</span>
-                    </div>
-                  </article>
-                );
+                return renderMessageCard({
+                  message,
+                  isOwn,
+                  conversationOptions: item.conversationOptions,
+                  contextLabel: item.contextLabel,
+                });
               })}
             </div>
           ) : (
@@ -2137,78 +2626,40 @@ function App() {
 
                 {visibleMessages.map((message) => {
                   const isOwn = currentUser && Number(message.sender_id) === Number(currentUser.id);
-                  const attachment = getAttachmentPreview(message);
-                  const starKey = buildMessageStarKey(message, {
-                    groupId: isGroupChatActive ? activeGroup?.id : null,
-                    peerId: !isGroupChatActive ? activeUser?.id : null,
+                  return renderMessageCard({
+                    message,
+                    isOwn,
+                    conversationOptions: {
+                      groupId: isGroupChatActive ? activeGroup?.id : null,
+                      peerId: !isGroupChatActive ? activeUser?.id : null,
+                    },
+                    showSenderName: isGroupChatActive && !isOwn,
+                    senderName: isGroupChatActive && !isOwn ? getUserNameById(message.sender_id) : '',
                   });
-                  const isStarred = Boolean(starredMessageKeys[starKey]);
-
-                  return (
-                    <article key={message.id} className={`message-row ${isOwn ? 'own' : 'other'}`}>
-                      <div className="bubble">
-                        <button
-                          type="button"
-                          className={`message-star-btn ${isStarred ? 'active' : ''}`}
-                          onClick={() =>
-                            toggleMessageStar(message, {
-                              groupId: isGroupChatActive ? activeGroup?.id : null,
-                              peerId: !isGroupChatActive ? activeUser?.id : null,
-                            })
-                          }
-                          title={isStarred ? 'Remove from starred' : 'Add to starred'}
-                          aria-label={isStarred ? 'Remove from starred' : 'Add to starred'}
-                        >
-                          <FontAwesomeIcon icon={faStar} />
-                        </button>
-
-                        {isGroupChatActive && !isOwn ? (
-                          <p className="group-sender-name">{getUserNameById(message.sender_id)}</p>
-                        ) : null}
-
-                        {attachment && attachment.type === 'image' && attachment.url ? (
-                          <a
-                            className="attachment-link image"
-                            href={attachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <img src={attachment.url} alt={attachment.name} loading="lazy" />
-                          </a>
-                        ) : null}
-
-                        {attachment && attachment.type === 'file' && attachment.url ? (
-                          <a
-                            className="attachment-link file"
-                            href={attachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {attachment.name}
-                          </a>
-                        ) : null}
-
-                        {attachment ? (
-                          attachment.caption ? <p>{attachment.caption}</p> : null
-                        ) : (
-                          <p>{message.message}</p>
-                        )}
-                        <span>{formatTime(message.created_at)}</span>
-                      </div>
-                    </article>
-                  );
                 })}
               </div>
 
               <form className="composer" onSubmit={sendMessage}>
-            <div className="attachment-menu-wrap" ref={attachmentMenuRef}>
+                {isEditingMessage ? (
+                  <div className="editing-banner">
+                    <div>
+                      <strong>Editing message</strong>
+                      <span>Update the text and press send to save it.</span>
+                    </div>
+                    <button type="button" onClick={() => { setEditingMessage(null); setDraft(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="attachment-menu-wrap" ref={attachmentMenuRef}>
               <button
                 type="button"
                 className="attachment-toggle"
                 onClick={() => setIsAttachmentMenuOpen((previous) => !previous)}
                 disabled={
-                  isStarredViewActive ||
-                  (!activeUser && !isGroupChatActive) ||
+                  (isStarredViewActive && !isEditingMessage) ||
+                  (!isEditingMessage && !activeUser && !isGroupChatActive) ||
                   (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
                 }
                 aria-label="Add attachment"
@@ -2252,8 +2703,8 @@ function App() {
                   setIsAttachmentMenuOpen(false);
                 }}
                 disabled={
-                  isStarredViewActive ||
-                  (!activeUser && !isGroupChatActive) ||
+                  (isStarredViewActive && !isEditingMessage) ||
+                  (!isEditingMessage && !activeUser && !isGroupChatActive) ||
                   (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
                 }
                 aria-label="Add emoji"
@@ -2277,7 +2728,9 @@ function App() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={
-                isGroupChatActive
+                isEditingMessage
+                  ? 'Edit message...'
+                  : isGroupChatActive
                   ? activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup)
                     ? 'Only admins can send messages'
                     : 'Message group...'
@@ -2286,8 +2739,8 @@ function App() {
                   : 'Select a user first'
               }
               disabled={
-                isStarredViewActive ||
-                (!activeUser && !isGroupChatActive) ||
+                (isStarredViewActive && !isEditingMessage) ||
+                (!isEditingMessage && !activeUser && !isGroupChatActive) ||
                 (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
               }
             />
@@ -2307,13 +2760,14 @@ function App() {
             <button
               type="submit"
               disabled={
-                isStarredViewActive ||
-                (!activeUser && !isGroupChatActive) ||
+                (isStarredViewActive && !isEditingMessage) ||
+                (!isEditingMessage && !activeUser && !isGroupChatActive) ||
                 (!draft.trim() && !selectedAttachment) ||
                 (isGroupChatActive && activeGroup?.permissions?.onlyAdminsCanMessage && !isGroupAdmin(activeGroup))
               }
+              title={isEditingMessage ? 'Save message' : 'Send message'}
             >
-              <FontAwesomeIcon icon={faPaperPlane} />
+              <FontAwesomeIcon icon={isEditingMessage ? faCheck : faPaperPlane} />
             </button>
               </form>
             </>

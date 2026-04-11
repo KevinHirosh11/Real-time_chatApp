@@ -233,6 +233,119 @@ try {
         ]);
     }
 
+    if (in_array($_SERVER['REQUEST_METHOD'], ['PUT', 'PATCH'], true)) {
+        $body = readJsonBody();
+
+        $messageId = isset($body['id']) ? (int) $body['id'] : 0;
+        $senderId = isset($body['sender_id']) ? (int) $body['sender_id'] : 0;
+        $receiverId = isset($body['receiver_id']) ? (int) $body['receiver_id'] : 0;
+        $message = isset($body['message']) ? trim((string) $body['message']) : '';
+
+        if ($messageId <= 0 || $senderId <= 0) {
+            jsonResponse(422, [
+                'success' => false,
+                'message' => 'id and sender_id are required',
+            ]);
+        }
+
+        if ($message === '') {
+            jsonResponse(422, [
+                'success' => false,
+                'message' => 'message is required',
+            ]);
+        }
+
+        $whereClause = 'WHERE id = :id AND sender_id = :sender_id';
+        $params = [
+            ':id' => $messageId,
+            ':sender_id' => $senderId,
+        ];
+
+        if ($receiverId > 0) {
+            $whereClause .= ' AND receiver_id = :receiver_id';
+            $params[':receiver_id'] = $receiverId;
+        }
+
+        $existingStmt = $pdo->prepare("SELECT id FROM messages {$whereClause} LIMIT 1");
+        $existingStmt->execute($params);
+
+        if (!$existingStmt->fetchColumn()) {
+            jsonResponse(404, [
+                'success' => false,
+                'message' => 'Message not found',
+            ]);
+        }
+
+        $updateStmt = $pdo->prepare("UPDATE messages SET message = :message {$whereClause}");
+        $updateStmt->execute(array_merge($params, [':message' => $message]));
+
+        $fetchStmt = $pdo->prepare('SELECT id, sender_id, receiver_id, message, message_type, is_read, created_at FROM messages WHERE id = :id LIMIT 1');
+        $fetchStmt->execute([':id' => $messageId]);
+        $updatedMessage = $fetchStmt->fetch();
+
+        if (!$updatedMessage) {
+            jsonResponse(404, [
+                'success' => false,
+                'message' => 'Message not found',
+            ]);
+        }
+
+        $updatedMessage['created_at'] = toSriLankaIso($updatedMessage['created_at'] ?? null);
+
+        jsonResponse(200, [
+            'success' => true,
+            'message' => 'Message updated',
+            'data' => $updatedMessage,
+        ]);
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+        $body = readJsonBody();
+
+        $messageId = isset($body['id']) ? (int) $body['id'] : 0;
+        $senderId = isset($body['sender_id']) ? (int) $body['sender_id'] : 0;
+        $receiverId = isset($body['receiver_id']) ? (int) $body['receiver_id'] : 0;
+
+        if ($messageId <= 0 || $senderId <= 0) {
+            jsonResponse(422, [
+                'success' => false,
+                'message' => 'id and sender_id are required',
+            ]);
+        }
+
+        $whereClause = 'WHERE id = :id AND sender_id = :sender_id';
+        $params = [
+            ':id' => $messageId,
+            ':sender_id' => $senderId,
+        ];
+
+        if ($receiverId > 0) {
+            $whereClause .= ' AND receiver_id = :receiver_id';
+            $params[':receiver_id'] = $receiverId;
+        }
+
+        $existingStmt = $pdo->prepare("SELECT id FROM messages {$whereClause} LIMIT 1");
+        $existingStmt->execute($params);
+
+        if (!$existingStmt->fetchColumn()) {
+            jsonResponse(404, [
+                'success' => false,
+                'message' => 'Message not found',
+            ]);
+        }
+
+        $deleteStmt = $pdo->prepare("DELETE FROM messages {$whereClause}");
+        $deleteStmt->execute($params);
+
+        jsonResponse(200, [
+            'success' => true,
+            'message' => 'Message deleted',
+            'data' => [
+                'id' => $messageId,
+            ],
+        ]);
+    }
+
     jsonResponse(405, ['success' => false, 'message' => 'Method not allowed']);
 } catch (Throwable $e) {
     jsonResponse(500, [

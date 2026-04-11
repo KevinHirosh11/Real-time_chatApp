@@ -82,6 +82,26 @@ class ChatServer implements MessageComponentInterface
             return;
         }
 
+        if ($type === 'message_update') {
+            $this->handleMessageUpdate($from, $senderId, $payload);
+            return;
+        }
+
+        if ($type === 'message_delete') {
+            $this->handleMessageDelete($from, $senderId, $payload);
+            return;
+        }
+
+        if ($type === 'group_message_update') {
+            $this->handleGroupMessageUpdate($from, $senderId, $payload);
+            return;
+        }
+
+        if ($type === 'group_message_delete') {
+            $this->handleGroupMessageDelete($from, $senderId, $payload);
+            return;
+        }
+
         $this->sendJson($from, [
             'type' => 'error',
             'message' => 'Unsupported message type',
@@ -334,6 +354,200 @@ class ChatServer implements MessageComponentInterface
                 'type' => 'group_message',
                 'data' => $packet,
             ]);
+        }
+    }
+
+    private function handleMessageUpdate(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $receiverId = isset($payload['receiverId']) ? (int) $payload['receiverId'] : 0;
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : 0;
+        $message = isset($payload['message']) ? (string) $payload['message'] : '';
+        $messageType = isset($payload['messageType']) ? (string) $payload['messageType'] : 'text';
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+
+        if ($receiverId <= 0 || $messageId <= 0 || $message === '') {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'message_update requires id, receiverId, and message',
+            ]);
+            return;
+        }
+
+        $packet = [
+            'type' => 'message_update',
+            'data' => [
+                'id' => $messageId,
+                'senderId' => $senderId,
+                'receiverId' => $receiverId,
+                'message' => $message,
+                'messageType' => $messageType,
+                'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+            ],
+        ];
+
+        $this->sendJson($from, $packet);
+
+        if (isset($this->userConnections[$receiverId])) {
+            $this->sendJson($this->userConnections[$receiverId], $packet);
+            return;
+        }
+
+        $this->queuePacket($receiverId, $packet);
+    }
+
+    private function handleMessageDelete(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $receiverId = isset($payload['receiverId']) ? (int) $payload['receiverId'] : 0;
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : 0;
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+
+        if ($receiverId <= 0 || $messageId <= 0) {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'message_delete requires id and receiverId',
+            ]);
+            return;
+        }
+
+        $packet = [
+            'type' => 'message_delete',
+            'data' => [
+                'id' => $messageId,
+                'senderId' => $senderId,
+                'receiverId' => $receiverId,
+                'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+            ],
+        ];
+
+        $this->sendJson($from, $packet);
+
+        if (isset($this->userConnections[$receiverId])) {
+            $this->sendJson($this->userConnections[$receiverId], $packet);
+            return;
+        }
+
+        $this->queuePacket($receiverId, $packet);
+    }
+
+    private function handleGroupMessageUpdate(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $groupId = isset($payload['groupId']) ? trim((string) $payload['groupId']) : '';
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : 0;
+        $message = isset($payload['message']) ? trim((string) $payload['message']) : '';
+        $messageType = isset($payload['messageType']) ? (string) $payload['messageType'] : 'text';
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+        $group = isset($payload['group']) && is_array($payload['group']) ? $payload['group'] : [];
+
+        if ($groupId === '' || $messageId <= 0 || $message === '') {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'group_message_update requires groupId, id, and message',
+            ]);
+            return;
+        }
+
+        $memberIds = [];
+        if (isset($group['memberIds']) && is_array($group['memberIds'])) {
+            foreach ($group['memberIds'] as $memberId) {
+                $value = (int) $memberId;
+                if ($value > 0) {
+                    $memberIds[$value] = $value;
+                }
+            }
+        }
+
+        $memberIds[$senderId] = $senderId;
+
+        $packet = [
+            'type' => 'group_message_update',
+            'data' => [
+                'id' => $messageId,
+                'groupId' => $groupId,
+                'senderId' => $senderId,
+                'message' => $message,
+                'messageType' => $messageType,
+                'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+                'group' => [
+                    'id' => $groupId,
+                    'name' => isset($group['name']) ? (string) $group['name'] : 'Group',
+                    'description' => isset($group['description']) ? (string) $group['description'] : '',
+                    'image' => isset($group['image']) ? (string) $group['image'] : '',
+                    'memberIds' => array_values($memberIds),
+                    'adminIds' => isset($group['adminIds']) && is_array($group['adminIds']) ? $group['adminIds'] : [$senderId],
+                    'permissions' => isset($group['permissions']) && is_array($group['permissions'])
+                        ? $group['permissions']
+                        : ['onlyAdminsCanMessage' => false, 'onlyAdminsCanEdit' => true],
+                    'createdBy' => isset($group['createdBy']) ? (int) $group['createdBy'] : $senderId,
+                ],
+            ],
+        ];
+
+        foreach ($memberIds as $memberId) {
+            if (isset($this->userConnections[$memberId])) {
+                $this->sendJson($this->userConnections[$memberId], $packet);
+                continue;
+            }
+
+            $this->queuePacket($memberId, $packet);
+        }
+    }
+
+    private function handleGroupMessageDelete(ConnectionInterface $from, int $senderId, array $payload): void
+    {
+        $groupId = isset($payload['groupId']) ? trim((string) $payload['groupId']) : '';
+        $messageId = isset($payload['id']) ? (int) $payload['id'] : 0;
+        $createdAt = isset($payload['createdAt']) ? (string) $payload['createdAt'] : '';
+        $group = isset($payload['group']) && is_array($payload['group']) ? $payload['group'] : [];
+
+        if ($groupId === '' || $messageId <= 0) {
+            $this->sendJson($from, [
+                'type' => 'error',
+                'message' => 'group_message_delete requires groupId and id',
+            ]);
+            return;
+        }
+
+        $memberIds = [];
+        if (isset($group['memberIds']) && is_array($group['memberIds'])) {
+            foreach ($group['memberIds'] as $memberId) {
+                $value = (int) $memberId;
+                if ($value > 0) {
+                    $memberIds[$value] = $value;
+                }
+            }
+        }
+
+        $memberIds[$senderId] = $senderId;
+
+        $packet = [
+            'type' => 'group_message_delete',
+            'data' => [
+                'id' => $messageId,
+                'groupId' => $groupId,
+                'senderId' => $senderId,
+                'createdAt' => $createdAt !== '' ? $createdAt : (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Colombo')))->format(\DateTimeInterface::ATOM),
+                'group' => [
+                    'id' => $groupId,
+                    'name' => isset($group['name']) ? (string) $group['name'] : 'Group',
+                    'description' => isset($group['description']) ? (string) $group['description'] : '',
+                    'image' => isset($group['image']) ? (string) $group['image'] : '',
+                    'memberIds' => array_values($memberIds),
+                    'adminIds' => isset($group['adminIds']) && is_array($group['adminIds']) ? $group['adminIds'] : [$senderId],
+                    'permissions' => isset($group['permissions']) && is_array($group['permissions'])
+                        ? $group['permissions']
+                        : ['onlyAdminsCanMessage' => false, 'onlyAdminsCanEdit' => true],
+                    'createdBy' => isset($group['createdBy']) ? (int) $group['createdBy'] : $senderId,
+                ],
+            ],
+        ];
+
+        foreach ($memberIds as $memberId) {
+            if (isset($this->userConnections[$memberId])) {
+                $this->sendJson($this->userConnections[$memberId], $packet);
+                continue;
+            }
+
+            $this->queuePacket($memberId, $packet);
         }
     }
 
