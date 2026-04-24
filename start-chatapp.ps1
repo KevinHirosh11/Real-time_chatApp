@@ -24,6 +24,19 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+    Write-Host 'Ollama is not available in PATH.' -ForegroundColor Red
+    exit 1
+}
+
+Write-Host 'Starting Ollama server...' -ForegroundColor Cyan
+Start-Process powershell -ArgumentList @(
+    '-NoExit',
+    '-ExecutionPolicy', 'Bypass',
+    '-Command',
+    'ollama serve'
+)
+
 Write-Host 'Starting WebSocket server...' -ForegroundColor Cyan
 Start-Process powershell -ArgumentList @(
     '-NoExit',

@@ -44,6 +44,17 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const threadRef = useRef(null);
+	const composerInputRef = useRef(null);
+
+	const focusComposerInput = () => {
+		if (!composerInputRef.current) {
+			return;
+		}
+
+		requestAnimationFrame(() => {
+			composerInputRef.current?.focus();
+		});
+	};
 
 	const makeAssistantErrorMessage = (message) => {
 		if (!message) {
@@ -72,10 +83,12 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 		setMessages(getWelcomeMessages(currentUser?.username));
 		setDraft('');
 		setError('');
+		focusComposerInput();
 	};
 
 	const handleSuggestion = (value) => {
 		setDraft(value);
+		focusComposerInput();
 	};
 
 	const sendPrompt = async (event) => {
@@ -98,6 +111,7 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 		setDraft('');
 		setError('');
 		setLoading(true);
+		focusComposerInput();
 
 		try {
 			const response = await fetch(`${apiBase.replace(/\/$/, '')}/beeai.php`, {
@@ -146,6 +160,7 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 			]);
 		} finally {
 			setLoading(false);
+			focusComposerInput();
 		}
 	};
 
@@ -197,11 +212,11 @@ function BeeAiPanel({ currentUser, apiBase: apiBaseProp }) {
 
 			<form className="beeai-composer" onSubmit={sendPrompt}>
 				<input
+					ref={composerInputRef}
 					type="text"
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
 					placeholder="Ask BeeAI..."
-					disabled={loading}
 				/>
 				<button
 					type="submit"
