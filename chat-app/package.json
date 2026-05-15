@@ -1,7 +1,9 @@
 {
-  "name": "chat-app",
-  "version": "0.1.0",
+  "name": "bee-chat-app",
+  "version": "1.0.0",
   "private": true,
+  "main": "electron/main.js",
+  "homepage": "./",
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.2.0",
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
@@ -19,7 +21,39 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "electron-dev": "concurrently \"react-scripts start\" \"wait-on http://localhost:3000 && cross-env ELECTRON_DEV=true npx electron .\"",
+    "electron-start": "npx electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.beechatapp.desktop",
+    "productName": "Bee Chat App",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "build/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../socket-server",
+        "to": "socket-server"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/bee.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   },
   "eslintConfig": {
     "extends": [
@@ -38,5 +72,12 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
+    "wait-on": "^9.0.10"
   }
 }
